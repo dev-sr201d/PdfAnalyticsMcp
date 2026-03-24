@@ -172,7 +172,8 @@ Page page = document.GetPage(pageNumber); // 1-based
 
 - **Default to `page.GetWords()`** — returns `Word` objects with `Text`, `BoundingBox`, `FontName`, `FontSize`, and constituent letters. This is 5× smaller than letter-level data and sufficient for most layout analysis.
 - Access letter-level data via `page.Letters` only when the agent explicitly requests `granularity = "letters"`.
-- Each `Letter` exposes: `Value`, `Location` (point), `GlyphRectangle` (bounding box), `FontName`, `FontSize`, `PointSize`, `Color` (RGB).
+- Each `Letter` exposes: `Value`, `Location` (point), `BoundingBox` (bounding box), `FontName`, `FontSize`, `PointSize`, `Color` (RGB).
+- **Use `Letter.PointSize`, not `Letter.FontSize`, for font size.** `FontSize` returns the raw value from the PDF content stream, which is often `1.0` for embedded/subset fonts (the font matrix handles scaling). `PointSize` returns the actual rendered size in points (e.g., 9pt, 10pt). For Standard14 fonts (Helvetica, Times, Courier, etc.) both properties return the same value, but for real-world PDFs with embedded fonts — which are the common case — `FontSize` is unreliable.
 - For complex layouts, consider `NearestNeighbourWordExtractor.Instance` passed to `page.GetWords()` — it handles irregular spacing better than the default extractor.
 
 ### Graphics Extraction (High Complexity)

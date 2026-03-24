@@ -15,5 +15,6 @@ builder.Services
 
 builder.Services.AddSingleton<IInputValidationService, InputValidationService>();
 builder.Services.AddSingleton<IPdfInfoService, PdfInfoService>();
+builder.Services.AddSingleton<IPageTextService, PageTextService>();
 
 await builder.Build().RunAsync();
