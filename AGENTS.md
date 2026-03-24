@@ -112,7 +112,13 @@ The server exposes five tools, each operating on a single PDF page (except `GetP
 ### Error Handling
 
 - Validate tool parameters at the boundary (null/empty path, page number out of range) and throw `ArgumentException` with clear messages.
-- Do not catch exceptions in tool methods unless transforming them into a meaningful user-facing message — the MCP SDK automatically wraps unhandled exceptions into error tool results.
+- **The MCP SDK only preserves error messages from `McpException` subclasses.** For all other exception types (including `ArgumentException`), the SDK returns a generic "An error occurred invoking '...'" message to prevent leaking internal details. To surface validation errors with meaningful messages, catch `ArgumentException` in the tool method and rethrow as `McpException`:
+  ```csharp
+  catch (ArgumentException ex)
+  {
+      throw new McpException(ex.Message);
+  }
+  ```
 - Throw `McpProtocolException` only for protocol-level issues (e.g., malformed requests), not for application errors.
 - Never expose internal details (stack traces, file paths beyond what the user provided) in error messages.
 

@@ -65,6 +65,8 @@ Same fields as word elements, but each element represents a single character. Th
 - `UglyToad.PdfPig` NuGet package.
 - Shared serialization configuration (ADR-0005).
 
+> **Note:** This feature reuses the shared infrastructure established by Feature 002: the centralized serialization options, coordinate rounding utility, color formatting utility, and input validation service.
+
 ## Acceptance Criteria
 
 - [ ] Calling `GetPageText` with `granularity = "words"` returns word-level text elements with bounding boxes, font, size, and color.

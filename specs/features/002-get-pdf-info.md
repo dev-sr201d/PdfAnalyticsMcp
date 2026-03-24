@@ -43,7 +43,9 @@ A JSON object containing:
 ## Dependencies
 
 - Feature 001 (MCP Server Host) must be complete.
-- `UglyToad.PdfPig` NuGet package.
+- `PdfPig` NuGet package (meta-package bundling all `UglyToad.PdfPig.*` assemblies).
+
+> **Note:** As the first tool implementation, Feature 002 will implicitly establish shared infrastructure components that all subsequent tools depend on: the centralized JSON serialization configuration (ADR-0005), the coordinate rounding and color formatting utilities, and the input validation service (FRD-007). These shared components are created alongside this feature and reused by Features 003–006.
 
 ## Acceptance Criteria
 

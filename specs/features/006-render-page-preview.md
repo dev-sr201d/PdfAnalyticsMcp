@@ -50,6 +50,8 @@ A JSON object containing:
 - `Docnet.Core` NuGet package (introduces native PDFium dependency).
 - A PNG encoding capability (lightweight library or manual PNG writer for BGRA-to-PNG conversion).
 
+> **Note:** This feature reuses the shared infrastructure established by Feature 002: the centralized serialization options and input validation service. It does not use PdfPig or the coordinate/color utilities (Docnet operates independently).
+
 ## Acceptance Criteria
 
 - [ ] Calling `RenderPagePreview` with default DPI renders the page at 150 DPI and returns a valid base64-encoded PNG.

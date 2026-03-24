@@ -90,6 +90,8 @@ A JSON object containing:
 - `UglyToad.PdfPig` NuGet package.
 - This feature requires the most significant service-layer implementation (graphics state machine in `Services/`).
 
+> **Note:** This feature reuses the shared infrastructure established by Feature 002: the centralized serialization options, coordinate rounding utility, color formatting utility, and input validation service.
+
 ## Acceptance Criteria
 
 - [ ] Calling `GetPageGraphics` on a page with table gridlines returns classified lines with correct start/end points and stroke colors.

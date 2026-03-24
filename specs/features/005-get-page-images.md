@@ -58,6 +58,8 @@ A JSON object containing:
 - Feature 001 (MCP Server Host) must be complete.
 - `UglyToad.PdfPig` NuGet package.
 
+> **Note:** This feature reuses the shared infrastructure established by Feature 002: the centralized serialization options, coordinate rounding utility, and input validation service.
+
 ## Acceptance Criteria
 
 - [ ] Calling `GetPageImages` on a page with images returns bounding boxes and pixel dimensions for each image.
