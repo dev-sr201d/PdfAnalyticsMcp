@@ -36,20 +36,22 @@ This document synthesizes the project requirements (PRD), architecture decisions
 ```
 PdfAnalyticsMcp/
 ├── specs/
-│   ├── concept.md              # Original concept / design notes
-│   ├── prd.md                  # Product Requirements Document
-│   └── adr/                    # Architecture Decision Records
-│       ├── 0001-language-and-runtime.md
-│       ├── 0002-pdf-parsing-library.md
-│       ├── 0003-mcp-server-sdk.md
-│       ├── 0004-pdf-rendering-library.md
-│       └── 0005-serialization-and-response-format.md
+│   ├── initial-concept.md       # Original concept / design notes
+│   ├── prd.md                   # Product Requirements Document
+│   ├── adr/                     # Architecture Decision Records
+│   │   ├── 0001-language-and-runtime.md
+│   │   ├── 0002-pdf-parsing-library.md
+│   │   ├── 0003-mcp-server-sdk.md
+│   │   ├── 0004-pdf-rendering-library.md
+│   │   └── 0005-serialization-and-response-format.md
+│   ├── features/                # Feature Requirement Documents (FRDs)
+│   └── tasks/                   # Task breakdowns for implementation
 ├── src/
-│   └── PdfAnalyticsMcp/        # Main server project
-│       ├── Program.cs           # Host setup, MCP server registration
-│       ├── Tools/               # MCP tool classes
-│       ├── Models/              # DTOs for tool responses
-│       └── Services/            # PDF extraction logic
+│   └── PdfAnalyticsMcp/         # Main server project
+│       ├── Program.cs            # Host setup, MCP server registration
+│       ├── Tools/                # MCP tool classes
+│       ├── Models/               # DTOs for tool responses
+│       └── Services/             # PDF extraction logic
 ├── tests/
 │   └── PdfAnalyticsMcp.Tests/   # Unit and integration tests
 ├── AGENTS.md                    # This file
@@ -71,7 +73,7 @@ The server exposes five tools, each operating on a single PDF page (except `GetP
 
 | Tool | Purpose | REQ |
 |------|---------|-----|
-| `GetPdfInfo` | Page count, dimensions, title, author, bookmarks | REQ-1 |
+| `GetPdfInfo` | Page count, dimensions, title, author, subject, keywords, creator, producer, bookmarks | REQ-1 |
 | `GetPageText` | Text with position, font, size, color; `words` or `letters` granularity | REQ-2 |
 | `GetPageGraphics` | Classified shapes: rectangles, lines, paths with fill/stroke/color | REQ-3 |
 | `GetPageImages` | Image bounding boxes, dimensions; optional base64 PNG data | REQ-4 |
@@ -189,12 +191,12 @@ Page page = document.GetPage(pageNumber); // 1-based
 ```csharp
 foreach (IPdfImage image in page.GetImages())
 {
-    var bounds = image.Bounds;          // PdfRectangle
+    var bounds = image.BoundingBox;     // PdfRectangle
     bool hasPng = image.TryGetPng(out byte[] pngBytes);
 }
 ```
 
-- Use `image.Bounds` for the bounding box on the page.
+- Use `image.BoundingBox` for the bounding box on the page.
 - Use `image.TryGetPng()` for PNG conversion — returns `false` if the image format can't be converted (gracefully handle this case).
 - Only include base64 image data when the caller requests it (`includeData = true`) to manage response size.
 
@@ -203,12 +205,12 @@ foreach (IPdfImage image in page.GetImages())
 ## 8. Docnet (PDF Rendering) Best Practices
 
 ```csharp
-// PageDimensions takes pixel dimensions, NOT DPI.
-// Convert DPI to pixels: pixels = pagePointSize * dpi / 72
-int pixelWidth = (int)(pageWidthInPoints * dpi / 72.0);
-int pixelHeight = (int)(pageHeightInPoints * dpi / 72.0);
+// Use the scaling factor overload: scalingFactor = dpi / 72.0
+// This lets Docnet handle per-page pixel calculations internally,
+// eliminating the need to know page point dimensions upfront.
+double scalingFactor = dpi / 72.0;
 
-using var docReader = DocLib.Instance.GetDocReader(pdfPath, new PageDimensions(pixelWidth, pixelHeight));
+using var docReader = DocLib.Instance.GetDocReader(pdfPath, new PageDimensions(scalingFactor));
 using var pageReader = docReader.GetPageReader(pageNumber - 1); // 0-based index
 int width = pageReader.GetPageWidth();
 int height = pageReader.GetPageHeight();
@@ -219,8 +221,8 @@ byte[] rawBytes = pageReader.GetImage(); // BGRA format
 
 - Docnet page numbers are **0-based** — subtract 1 from the user-facing 1-based page number.
 - `GetImage()` returns raw **BGRA pixel data** (4 bytes per pixel), not an encoded image. You must encode to PNG before returning to the agent.
-- Use a lightweight PNG encoder (e.g., `SkiaSharp` or a minimal PNG writer) to convert BGRA bytes to PNG. Avoid pulling in large imaging libraries like `System.Drawing` (Windows-only) or full `ImageSharp` (heavy).
-- `PageDimensions` takes **pixel dimensions** (width, height), **not DPI**. To render at a specific DPI, calculate pixel dimensions from the page's point size: `pixels = points * dpi / 72`. Default to 150 DPI — a good balance between visual clarity and data size. A typical US Letter page at 150 DPI produces a ~1275×1650 pixel image.
+- Use a lightweight PNG encoder — a manual PNG writer using `System.IO.Compression.ZLibStream` (built into .NET 6+) is sufficient. Avoid pulling in large imaging libraries like `System.Drawing` (Windows-only) or full `ImageSharp` (heavy).
+- Use `PageDimensions(double scalingFactor)` where `scalingFactor = dpi / 72.0`. This directly achieves the desired rendering DPI without needing to know the page's intrinsic point dimensions upfront, which eliminates any dependency on PdfPig for rendering. Default to 150 DPI — a good balance between visual clarity and data size. A typical US Letter page at 150 DPI produces a ~1275×1650 pixel image.
 - Docnet has **native dependencies** (PDFium binaries) bundled per platform in the NuGet package. These are auto-selected at runtime — no manual configuration needed.
 - Dispose `IDocReader` and `IPageReader` via `using` — they hold native resources.
 - Docnet operates independently from PdfPig. Each library opens the PDF file separately, which is fine for short-lived tool calls.
