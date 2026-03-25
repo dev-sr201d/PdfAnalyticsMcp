@@ -34,12 +34,22 @@ Define response DTOs in the `Models/` directory as immutable `record` types:
    - `height` (double) — Page height in PDF points, rounded to 1 decimal place
    - `elements` (array of text element DTOs) — The extracted text elements
 
+3. **Page text summary DTO** — Compact response returned when `outputFile` is used:
+   - `page` (int) — The 1-based page number returned
+   - `width` (double) — Page width in PDF points, rounded to 1 decimal place
+   - `height` (double) — Page height in PDF points, rounded to 1 decimal place
+   - `elementCount` (int) — Number of text elements extracted
+   - `outputFile` (string) — Absolute path where the full data was written
+   - `sizeBytes` (long) — Size of the written file in bytes
+
 ### Service Interface
 
-Define a service interface in `Services/` with a method that:
-- Accepts a file path (string), a 1-based page number (int), and a granularity value (string)
-- Returns the page text response DTO
-- Uses `IInputValidationService` for page number validation (file path validation is the tool layer's responsibility, matching the established pattern in `GetPdfInfoTool`)
+Define a service interface in `Services/` with **two methods** (avoiding polymorphic return types and keeping each method's contract type-safe):
+
+1. **`Extract`** — Accepts a file path (string), a 1-based page number (int), and a granularity value (string). Returns the page text response DTO (full data inline). This is the existing method signature — it remains unchanged for backward compatibility.
+2. **`ExtractToFile`** — Accepts a file path (string), a 1-based page number (int), a granularity value (string), and an output file path (string). Returns the page text summary DTO. Internally calls `Extract` to get the full data, serializes it to the file, then builds and returns the summary.
+
+Both methods use `IInputValidationService` for page number validation (file path validation is the tool layer's responsibility, matching the established pattern in `GetPdfInfoTool`).
 
 ### Service Implementation
 
@@ -58,6 +68,16 @@ The service must:
 9. **Round all coordinates** (x, y, w, h) and font size using `FormatUtils.RoundCoordinate()`.
 10. **Handle PdfPig color extraction**: Letter color is available via the `Color` property. PdfPig's `IColor` interface has multiple implementations (grayscale, CMYK, RGB, etc.). Use the color's `ToRGBValues()` method to convert to RGB. Handle the conversion safely — if the `Color` property is null, the color space is unsupported, or `ToRGBValues()` throws, treat as default black (null). Do not assume all letters will have a directly accessible RGB color.
 11. **Dispose PdfDocument** properly — open per call, not cached.
+12. **`ExtractToFile` implementation** — The `ExtractToFile` method must:
+    - Validate the output file path is absolute (not relative). Reject relative paths with `ArgumentException`.
+    - Reject paths containing path traversal sequences (`..`). Throw `ArgumentException`.
+    - Verify the parent directory exists. Throw `ArgumentException` if it does not.
+    - Call the existing `Extract` method internally to get the full page text response DTO.
+    - Serialize the full DTO to compact JSON using `SerializerConfig.Options`.
+    - Write the JSON string to the specified file path (overwrite if it already exists).
+    - Return the page text summary DTO with the element count, the absolute file path, and the file size in bytes.
+    - Round `width` and `height` in the summary DTO to 1 decimal place (consistent with the full response DTO).
+13. **`Extract` method unchanged** — The existing `Extract` method continues to return the full page text response DTO. No changes needed for backward compatibility.
 
 ### Test Data
 
@@ -68,6 +88,7 @@ The test data PDF(s) must include:
 - At least two different fonts (e.g., one regular, one bold)
 - At least one non-black colored text element
 - A page with approximately 300 words to support the ≤ 30 KB response size acceptance criterion (this PDF is also needed by Task 009's integration tests)
+- A dense page with enough words to produce > 30 KB of JSON at word granularity (needed by Task 009 test #16 for verifying `outputFile` on large pages)
 - Multiple words on a single page for word-level extraction testing
 - Content suitable for verifying letter-level extraction
 
@@ -81,7 +102,7 @@ Register the service in `Program.cs` dependency injection as a singleton, follow
 
 - [ ] Text element DTO is defined as an immutable record with all specified fields, using nullable types for optional fields (color, bold, italic).
 - [ ] Page text response DTO is defined as an immutable record with page number, dimensions, and elements array.
-- [ ] Service interface is defined with a method accepting file path, page number, and granularity.
+- [ ] Service interface defines two methods: `Extract` (returns full DTO) and `ExtractToFile` (returns summary DTO), each with explicit return types.
 - [ ] Service implementation extracts word-level text elements using `page.GetWords()` when granularity is `"words"`.
 - [ ] Service implementation extracts letter-level text elements using `page.Letters` when granularity is `"letters"`.
 - [ ] Service throws `ArgumentException` for invalid granularity values.
@@ -93,6 +114,12 @@ Register the service in `Program.cs` dependency injection as a singleton, follow
 - [ ] Only the requested page is accessed via `document.GetPage(n)`.
 - [ ] Service is registered as a singleton in `Program.cs`.
 - [ ] Test data PDF(s) exist in `tests/TestData/` with known text, fonts, and colors.
+- [ ] Page text summary DTO is defined as an immutable record with page, width, height, elementCount, outputFile, and sizeBytes fields.
+- [ ] `ExtractToFile` writes the full JSON to disk, then returns a summary DTO with correct fields.
+- [ ] `Extract` continues to return the full page text response DTO unchanged (backward-compatible).
+- [ ] `ExtractToFile` internally delegates to `Extract` to obtain the full data before writing.
+- [ ] The `outputFile` path is validated: relative paths and path traversal sequences are rejected with `ArgumentException`.
+- [ ] If the parent directory of `outputFile` does not exist, `ArgumentException` is thrown.
 
 ## Testing Requirements
 
@@ -109,3 +136,10 @@ Unit tests must cover:
 9. **Page number validation** — Verify that out-of-range page numbers throw `ArgumentException` (via `IInputValidationService`).
 10. **Invalid PDF** — Verify that a non-PDF file throws `ArgumentException`.
 11. **Serialization** — Verify that the DTOs serialize to expected JSON structure: camelCase properties, null fields omitted, compact format.
+12. **ExtractToFile writes to disk** — Given a valid output file path, verify `ExtractToFile` writes JSON to disk and returns a summary DTO with correct `elementCount`, `outputFile`, and `sizeBytes` values.
+13. **ExtractToFile file content** — Verify the written file contains valid JSON matching the full page text response structure.
+14. **ExtractToFile overwrite** — Verify that if the output file already exists, it is overwritten without error.
+15. **ExtractToFile relative path rejected** — Verify that a relative output file path throws `ArgumentException`.
+16. **ExtractToFile path traversal rejected** — Verify that an output file path containing `..` throws `ArgumentException`.
+17. **ExtractToFile directory missing** — Verify that an output file path in a nonexistent directory throws `ArgumentException`.
+18. **Extract unchanged** — Verify that `Extract` continues to return the full page text response DTO with no file I/O side effects.

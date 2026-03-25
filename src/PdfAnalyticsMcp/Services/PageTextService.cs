@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PdfAnalyticsMcp.Models;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
@@ -51,6 +52,34 @@ public class PageTextService(IInputValidationService validationService) : IPageT
                 FormatUtils.RoundCoordinate(pdfPage.Height),
                 elements);
         }
+    }
+
+    public PageTextSummaryDto ExtractToFile(string pdfPath, int page, string granularity, string outputFile)
+    {
+        if (!Path.IsPathRooted(outputFile))
+            throw new ArgumentException("Output file path must be an absolute path.");
+
+        if (outputFile.Contains(".."))
+            throw new ArgumentException("Output file path must not contain path traversal sequences.");
+
+        var parentDir = Path.GetDirectoryName(outputFile);
+        if (parentDir is null || !Directory.Exists(parentDir))
+            throw new ArgumentException("The parent directory of the output file path does not exist.");
+
+        var fullResult = Extract(pdfPath, page, granularity);
+
+        var json = JsonSerializer.Serialize(fullResult, SerializerConfig.Options);
+        File.WriteAllText(outputFile, json);
+
+        var fileInfo = new FileInfo(outputFile);
+
+        return new PageTextSummaryDto(
+            fullResult.Page,
+            fullResult.Width,
+            fullResult.Height,
+            fullResult.Elements.Count,
+            fileInfo.FullName,
+            fileInfo.Length);
     }
 
     private static List<TextElementDto> ExtractWords(Page pdfPage)

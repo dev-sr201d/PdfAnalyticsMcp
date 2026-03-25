@@ -86,6 +86,7 @@ public class GetPageTextIntegrationTests : IDisposable
         Assert.True(props.TryGetProperty("pdfPath", out _));
         Assert.True(props.TryGetProperty("page", out _));
         Assert.True(props.TryGetProperty("granularity", out _));
+        Assert.True(props.TryGetProperty("outputFile", out _));
     }
 
     [Fact]
@@ -361,6 +362,157 @@ public class GetPageTextIntegrationTests : IDisposable
 
         var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
         Assert.Contains("Granularity must be 'words' or 'letters'.", text);
+    }
+
+    [Fact]
+    public async Task GetPageText_OutputFile_WritesSummaryAndFile()
+    {
+        await PerformHandshakeAsync();
+
+        TestPdfGenerator.CreateTextTestPdf();
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-text.pdf");
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+
+        try
+        {
+            var response = await CallToolAsync("get_page_text", new { pdfPath, page = 1, granularity = "words", outputFile });
+            Assert.NotNull(response);
+
+            var resultText = GetToolResultContent(response);
+            var sizeInBytes = Encoding.UTF8.GetByteCount(resultText);
+            Assert.True(sizeInBytes < 1024, $"Summary response should be < 1 KB but was {sizeInBytes} bytes.");
+
+            var summary = JsonDocument.Parse(resultText);
+            var root = summary.RootElement;
+            Assert.True(root.TryGetProperty("page", out _));
+            Assert.True(root.TryGetProperty("elementCount", out var elementCount));
+            Assert.True(elementCount.GetInt32() > 0);
+            Assert.True(root.TryGetProperty("outputFile", out var outputFileProp));
+            Assert.Equal(Path.GetFullPath(outputFile), outputFileProp.GetString());
+            Assert.True(root.TryGetProperty("sizeBytes", out var sizeBytesProp));
+            Assert.True(sizeBytesProp.GetInt64() > 0);
+
+            // Verify file was written with full data
+            Assert.True(File.Exists(outputFile));
+            var fileContent = File.ReadAllText(outputFile);
+            var fileDoc = JsonDocument.Parse(fileContent);
+            Assert.True(fileDoc.RootElement.TryGetProperty("elements", out var elements));
+            Assert.Equal(elementCount.GetInt32(), elements.GetArrayLength());
+        }
+        finally
+        {
+            if (File.Exists(outputFile)) File.Delete(outputFile);
+        }
+    }
+
+    [Fact]
+    public async Task GetPageText_OutputFile_DensePage_SummaryUnder1KB()
+    {
+        await PerformHandshakeAsync();
+
+        TestPdfGenerator.CreateDenseTextTestPdf();
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-text-dense.pdf");
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+
+        try
+        {
+            var response = await CallToolAsync("get_page_text", new { pdfPath, page = 1, granularity = "words", outputFile });
+            Assert.NotNull(response);
+
+            var resultText = GetToolResultContent(response);
+            var summarySize = Encoding.UTF8.GetByteCount(resultText);
+            Assert.True(summarySize < 1024, $"Summary response should be < 1 KB but was {summarySize} bytes.");
+
+            // The file should contain > 30 KB of data
+            var fileSize = new FileInfo(outputFile).Length;
+            Assert.True(fileSize > 30 * 1024, $"Dense page file should be > 30 KB but was {fileSize} bytes.");
+        }
+        finally
+        {
+            if (File.Exists(outputFile)) File.Delete(outputFile);
+        }
+    }
+
+    [Fact]
+    public async Task GetPageText_OutputFile_OverwritesExisting()
+    {
+        await PerformHandshakeAsync();
+
+        TestPdfGenerator.CreateTextTestPdf();
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-text.pdf");
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+
+        try
+        {
+            File.WriteAllText(outputFile, "old content");
+
+            var response = await CallToolAsync("get_page_text", new { pdfPath, page = 1, granularity = "words", outputFile });
+            Assert.NotNull(response);
+
+            var fileContent = File.ReadAllText(outputFile);
+            Assert.DoesNotContain("old content", fileContent);
+            var fileDoc = JsonDocument.Parse(fileContent);
+            Assert.True(fileDoc.RootElement.TryGetProperty("elements", out _));
+        }
+        finally
+        {
+            if (File.Exists(outputFile)) File.Delete(outputFile);
+        }
+    }
+
+    [Fact]
+    public async Task GetPageText_NoOutputFile_ReturnsFullDataInline()
+    {
+        await PerformHandshakeAsync();
+
+        TestPdfGenerator.CreateTextTestPdf();
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-text.pdf");
+
+        var response = await CallToolAsync("get_page_text", new { pdfPath, page = 1, granularity = "words" });
+        Assert.NotNull(response);
+
+        var resultText = GetToolResultContent(response);
+        var doc = JsonDocument.Parse(resultText);
+        Assert.True(doc.RootElement.TryGetProperty("elements", out _));
+        // Should NOT have summary-specific fields
+        Assert.False(doc.RootElement.TryGetProperty("elementCount", out _));
+        Assert.False(doc.RootElement.TryGetProperty("outputFile", out _));
+    }
+
+    [Fact]
+    public async Task GetPageText_OutputFile_RelativePath_ReturnsError()
+    {
+        await PerformHandshakeAsync();
+
+        TestPdfGenerator.CreateTextTestPdf();
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-text.pdf");
+
+        var response = await CallToolAsync("get_page_text", new { pdfPath, page = 1, outputFile = "relative/output.json" });
+        Assert.NotNull(response);
+
+        var resultElement = response.RootElement.GetProperty("result");
+        Assert.True(resultElement.GetProperty("isError").GetBoolean());
+
+        var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
+        Assert.Contains("absolute path", text);
+    }
+
+    [Fact]
+    public async Task GetPageText_OutputFile_PathTraversal_ReturnsError()
+    {
+        await PerformHandshakeAsync();
+
+        TestPdfGenerator.CreateTextTestPdf();
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-text.pdf");
+
+        var response = await CallToolAsync("get_page_text", new { pdfPath, page = 1, outputFile = "C:\\temp\\..\\output.json" });
+        Assert.NotNull(response);
+
+        var resultElement = response.RootElement.GetProperty("result");
+        Assert.True(resultElement.GetProperty("isError").GetBoolean());
+
+        var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
+        Assert.Contains("path traversal", text);
     }
 
     #region Helper Methods

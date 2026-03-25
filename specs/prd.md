@@ -58,7 +58,7 @@ The primary users are **AI agents** (LLM-based systems) that consume MCP tools, 
 
 - [REQ-1] **Document metadata retrieval** — The server must provide a tool that returns document-level information including page count, individual page dimensions, document title, author, subject, keywords, creator, producer, and the bookmarks/outline tree, so the agent can plan its page-by-page traversal.
 
-- [REQ-2] **Rich text extraction** — The server must provide a tool that returns text content from a specified page with full positional and stylistic metadata (x, y, width, height, font name, font size, bold/italic flags, and RGB fill color) for each text element. The tool must support configurable granularity (at minimum `words` and `letters` levels).
+- [REQ-2] **Rich text extraction** — The server must provide a tool that returns text content from a specified page with full positional and stylistic metadata (x, y, width, height, font name, font size, bold/italic flags, and RGB fill color) for each text element. The tool must support configurable granularity (at minimum `words` and `letters` levels). For pages that exceed the inline size target, the tool must support an optional file-based output mode that writes the full result to a caller-specified path and returns a compact summary inline.
 
 - [REQ-3] **Graphics extraction and classification** — The server must provide a tool that returns all drawn graphic elements on a specified page, classified into meaningful shapes: filled/stroked rectangles (with bounds, fill color, stroke color, stroke width), lines (start/end points, stroke color, width, dash pattern), and complex paths (bounding box and vertex count). Vertex count is provided instead of a full vertex list to manage payload size for complex shapes. This is essential for identifying table borders, sidebars, callout boxes, section dividers, and background fills.
 
@@ -66,7 +66,7 @@ The primary users are **AI agents** (LLM-based systems) that consume MCP tools, 
 
 - [REQ-5] **Page rendering** — The server must provide a tool that renders a specified page as a PNG image at a configurable DPI, enabling multimodal AI models to visually inspect the page layout. This capability may rely on an external rendering dependency.
 
-- [REQ-6] **Data volume management** — The server must default to the most practical granularity level (words, not letters) and classify graphics server-side (rather than returning raw operations). Response sizes must remain practical for LLM consumption. Server-side classification into rectangles, lines, and complex paths (with vertex counts rather than full vertex lists) provides sufficient data reduction without requiring a separate summary mode.
+- [REQ-6] **Data volume management** — The server must default to the most practical granularity level (words, not letters) and classify graphics server-side (rather than returning raw operations). Response sizes must remain practical for LLM consumption. Server-side classification into rectangles, lines, and complex paths (with vertex counts rather than full vertex lists) provides sufficient data reduction for most pages. For dense pages that exceed the inline size target, tools may support an optional file-based output mode (see REQ-2) to offload the full payload to disk while returning a compact summary inline.
 
 - [REQ-7] **Page-by-page processing** — All page-content tools must operate on a single specified page at a time. The server must never load or return an entire document's content in one call.
 
@@ -126,7 +126,7 @@ so that I get a readable, editable document that preserves the original structur
 
 ### Assumptions
 
-- The AI agent consuming the tools has sufficient context window size to process detailed per-page responses (typically 30 KB or less per call).
+- The AI agent consuming the tools has sufficient context window size to process detailed per-page responses (typically 30 KB or less per call). For dense pages that exceed this target, file-based output provides an alternative that keeps inline responses small.
 - Multimodal capability in the consuming AI model is optional; the text and graphics tools provide enough information for structural understanding without the page preview tool.
 - Input PDFs are digitally-authored (not scanned images); OCR support is out of scope.
 - The MCP client and server communicate over stdio transport; the server runs as a local child process of the client.

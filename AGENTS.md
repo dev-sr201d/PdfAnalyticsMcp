@@ -12,8 +12,8 @@ This document synthesizes the project requirements (PRD), architecture decisions
 
 - The server runs as a **local child process** communicating over **stdin/stdout** (stdio transport). No HTTP, no network.
 - All page-content tools operate on a **single page per call**. Never load an entire document at once.
-- Response payloads must target **≤ 30 KB per call** at default granularity.
-- The server is **read-only** — it does not modify PDFs.
+- Response payloads must target **≤ 30 KB per call** at default granularity. Tools that may exceed this limit support an optional `outputFile` parameter to write the full JSON to disk and return a compact summary inline.
+- The server is **read-only** — it does not modify PDFs (writing `outputFile` output is the sole exception; no PDF content is altered).
 - OCR, form fields, digital signatures, and PDF/A compliance are **out of scope**.
 
 ---
@@ -74,7 +74,7 @@ The server exposes five tools, each operating on a single PDF page (except `GetP
 | Tool | Purpose | REQ |
 |------|---------|-----|
 | `GetPdfInfo` | Page count, dimensions, title, author, subject, keywords, creator, producer, bookmarks | REQ-1 |
-| `GetPageText` | Text with position, font, size, color; `words` or `letters` granularity | REQ-2 |
+| `GetPageText` | Text with position, font, size, color; `words` or `letters` granularity; optional `outputFile` for large pages | REQ-2 |
 | `GetPageGraphics` | Classified shapes: rectangles, lines, paths with fill/stroke/color | REQ-3 |
 | `GetPageImages` | Image bounding boxes, dimensions; optional base64 PNG data | REQ-4 |
 | `RenderPagePreview` | Full page rendered as PNG at configurable DPI | REQ-5 |
@@ -257,6 +257,7 @@ public static class SerializerConfig
 - **Hex color strings** — use `"#RRGGBB"` format (e.g., `"#FF0000"`), not separate R/G/B properties.
 - **Base64 image data** — only include when explicitly requested via a parameter.
 - **Source generators** — consider `[JsonSerializable(typeof(MyDto))]` for AOT compatibility and reduced allocations on hot paths.
+- **File-based output** — when a tool supports an `outputFile` parameter, serialize the full response DTO to disk using the same `SerializerConfig.Options`, then return a compact summary DTO inline (< 1 KB). Validate the output path: must be absolute, must not contain `..`, and the parent directory must exist. See ADR-0005.
 
 ### DTO Design
 

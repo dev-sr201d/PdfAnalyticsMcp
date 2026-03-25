@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — amended 2026-03-25
 
 ## Context
 
@@ -24,7 +24,19 @@ Use **System.Text.Json** (built into .NET) to serialize tool responses as JSON. 
 - Omit null/default properties (`DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull`) to reduce payload size.
 - Round coordinate values to 1 decimal place (0.1 PDF points ≈ 0.0014 inches — sufficient precision for layout analysis).
 - Encode colors as hex strings (`"#RRGGBB"`) rather than separate R/G/B integer properties.
+- Disable indentation (`WriteIndented = false`) — saves bytes on large responses; agents don't need pretty-printed JSON.
 - Return image data as base64-encoded PNG strings only when explicitly requested (`includeData = true`).
+
+### File-based output for large responses
+
+For tools where a typical page can produce responses exceeding the ≤ 30 KB inline target (e.g., dense pages with `GetPageText`), an optional `outputFile` parameter allows callers to redirect the full JSON result to a file on disk. When `outputFile` is provided:
+
+- The complete JSON payload is written to the specified absolute path using the same serialization options (camelCase, compact, nulls omitted).
+- The tool returns a compact **summary DTO** inline (< 1 KB) containing page metadata, element count, the output file path, and the file size in bytes.
+- The caller can then read the file independently, outside of the MCP response payload.
+- The `outputFile` path is validated: must be absolute, must not contain path traversal sequences (`..`), and the parent directory must exist. If the file already exists it is overwritten.
+
+This approach preserves backward compatibility — when `outputFile` is omitted, the full data is returned inline as before. Currently implemented for `GetPageText` (FRD-003). The pattern can be adopted by other tools (e.g., `GetPageGraphics`, `GetPageImages`) if their payloads also risk exceeding the inline size target.
 
 ## Alternatives Considered
 
@@ -43,6 +55,14 @@ Use **System.Text.Json** (built into .NET) to serialize tool responses as JSON. 
 - **Pros:** Very compact binary formats; fast serialization.
 - **Cons:** MCP tool results are text-based; binary formats would require base64 encoding, negating size benefits; not human-readable for debugging; adds complexity.
 
+### Alternatives considered for large-response handling (file-based output)
+
+- **Pagination (offset/limit parameters):** Would require callers to issue multiple round-trips and reassemble results. Adds protocol complexity and makes each individual response less self-contained.
+- **Server-side truncation with warning:** Simpler, but the caller loses data with no way to recover it. Unacceptable for faithful document conversion.
+- **Chunked streaming responses:** MCP tool results are single-shot text payloads; the protocol has no built-in streaming for tool results.
+
+File-based output was chosen because it keeps each tool call self-contained (one call = one complete result), requires no protocol extensions, and lets the caller decide when to read the file.
+
 ## Consequences
 
 - System.Text.Json is included in .NET 9 — no additional NuGet dependency.
@@ -51,3 +71,4 @@ Use **System.Text.Json** (built into .NET) to serialize tool responses as JSON. 
 - Coordinate rounding from ~15 significant digits to 1 decimal place significantly reduces JSON string length for dense pages with thousands of positioned elements.
 - The `camelCase` convention matches typical JSON conventions and is immediately familiar to LLMs trained on web data.
 - Omitting nulls and using compact color representation (`"#FF0000"` vs `{"r":255,"g":0,"b":0}`) reduces typical per-element overhead.
+- File-based output (`outputFile`) decouples response size from MCP payload limits. Dense pages that exceed ≤ 30 KB inline can write arbitrarily large JSON to disk while keeping the inline summary under 1 KB. This uses the same `SerializerConfig.Options` instance, so formatting is consistent whether output is inline or file-based.

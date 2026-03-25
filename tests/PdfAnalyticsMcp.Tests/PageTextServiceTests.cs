@@ -254,4 +254,116 @@ public class PageTextServiceTests
         Assert.Equal(expectedBold, bold);
         Assert.Equal(expectedItalic, italic);
     }
+
+    #region ExtractToFile Tests
+
+    [Fact]
+    public void ExtractToFile_WritesToDiskAndReturnsSummary()
+    {
+        var pdfPath = TestPdfGenerator.CreateTextTestPdf();
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+        try
+        {
+            var summary = _service.ExtractToFile(pdfPath, 1, "words", outputFile);
+
+            Assert.Equal(1, summary.Page);
+            Assert.True(summary.Width > 0);
+            Assert.True(summary.Height > 0);
+            Assert.True(summary.ElementCount > 0);
+            Assert.Equal(Path.GetFullPath(outputFile), summary.OutputFile);
+            Assert.True(summary.SizeBytes > 0);
+            Assert.True(File.Exists(outputFile));
+        }
+        finally
+        {
+            if (File.Exists(outputFile)) File.Delete(outputFile);
+        }
+    }
+
+    [Fact]
+    public void ExtractToFile_FileContainsValidJsonMatchingFullResponse()
+    {
+        var pdfPath = TestPdfGenerator.CreateTextTestPdf();
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+        try
+        {
+            var summary = _service.ExtractToFile(pdfPath, 1, "words", outputFile);
+            var fileContent = File.ReadAllText(outputFile);
+            var doc = JsonDocument.Parse(fileContent);
+            var root = doc.RootElement;
+
+            Assert.True(root.TryGetProperty("page", out _));
+            Assert.True(root.TryGetProperty("width", out _));
+            Assert.True(root.TryGetProperty("height", out _));
+            Assert.True(root.TryGetProperty("elements", out var elements));
+            Assert.Equal(summary.ElementCount, elements.GetArrayLength());
+        }
+        finally
+        {
+            if (File.Exists(outputFile)) File.Delete(outputFile);
+        }
+    }
+
+    [Fact]
+    public void ExtractToFile_OverwritesExistingFile()
+    {
+        var pdfPath = TestPdfGenerator.CreateTextTestPdf();
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+        try
+        {
+            File.WriteAllText(outputFile, "old content");
+            var summary = _service.ExtractToFile(pdfPath, 1, "words", outputFile);
+
+            var fileContent = File.ReadAllText(outputFile);
+            Assert.DoesNotContain("old content", fileContent);
+            Assert.True(summary.SizeBytes > 0);
+        }
+        finally
+        {
+            if (File.Exists(outputFile)) File.Delete(outputFile);
+        }
+    }
+
+    [Fact]
+    public void ExtractToFile_RelativePath_ThrowsArgumentException()
+    {
+        var pdfPath = TestPdfGenerator.CreateTextTestPdf();
+
+        var ex = Assert.Throws<ArgumentException>(
+            () => _service.ExtractToFile(pdfPath, 1, "words", "relative/output.json"));
+        Assert.Contains("absolute path", ex.Message);
+    }
+
+    [Fact]
+    public void ExtractToFile_PathTraversal_ThrowsArgumentException()
+    {
+        var pdfPath = TestPdfGenerator.CreateTextTestPdf();
+
+        var ex = Assert.Throws<ArgumentException>(
+            () => _service.ExtractToFile(pdfPath, 1, "words", "C:\\temp\\..\\output.json"));
+        Assert.Contains("path traversal", ex.Message);
+    }
+
+    [Fact]
+    public void ExtractToFile_DirectoryMissing_ThrowsArgumentException()
+    {
+        var pdfPath = TestPdfGenerator.CreateTextTestPdf();
+        var outputFile = Path.Combine("C:\\", $"nonexistent_{Guid.NewGuid()}", "output.json");
+
+        var ex = Assert.Throws<ArgumentException>(
+            () => _service.ExtractToFile(pdfPath, 1, "words", outputFile));
+        Assert.Contains("parent directory", ex.Message);
+    }
+
+    [Fact]
+    public void Extract_ContinuesToReturnFullDto_NoFileWritten()
+    {
+        var pdfPath = TestPdfGenerator.CreateTextTestPdf();
+        var result = _service.Extract(pdfPath, 1, "words");
+
+        Assert.True(result.Elements.Count > 0);
+        Assert.Equal(1, result.Page);
+    }
+
+    #endregion
 }

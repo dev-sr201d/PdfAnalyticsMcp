@@ -16,8 +16,11 @@ Provide a tool that extracts text content from a single PDF page with full posit
 | `pdfPath` | string | Yes | — | Absolute path to the PDF file |
 | `page` | int | Yes | — | 1-based page number |
 | `granularity` | string | No | `"words"` | Level of detail: `"words"` or `"letters"` |
+| `outputFile` | string | No | — | If provided, write the full JSON result to this file path and return a compact summary instead of the full data |
 
 ## Outputs
+
+### Default (no `outputFile`)
 
 A JSON object containing:
 
@@ -27,6 +30,19 @@ A JSON object containing:
 | `width` | double | Page width in PDF points |
 | `height` | double | Page height in PDF points |
 | `elements` | array | Array of text elements (words or letters) |
+
+### When `outputFile` is provided
+
+The full JSON result (same structure as above) is written to the specified file path. The tool returns a compact summary instead:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `page` | int | The page number returned |
+| `width` | double | Page width in PDF points |
+| `height` | double | Page height in PDF points |
+| `elementCount` | int | Number of text elements extracted |
+| `outputFile` | string | Absolute path where the full data was written |
+| `sizeBytes` | long | Size of the written file in bytes |
 
 ### Word element fields (granularity = `"words"`):
 
@@ -58,6 +74,9 @@ Same fields as word elements, but each element represents a single character. Th
 7. Color must be serialized as `"#RRGGBB"` hex strings. Color values are available on `Letter.Color` via `.ToRGBValues()`. Default black (`#000000`) should be omitted to reduce payload size.
 8. All coordinates must be rounded to 1 decimal place.
 9. The response must be serialized as compact JSON (no indentation, camelCase, nulls omitted).
+10. When `outputFile` is provided, the tool must write the complete JSON result to the specified file path and return a compact summary object (page dimensions, element count, file path, file size). The caller can then read the file independently.
+11. The `outputFile` path must be validated: the directory must exist, the path must be absolute, and path traversal sequences must be rejected. If the file already exists, it is overwritten.
+12. When `outputFile` is not provided, behavior is unchanged — the full JSON is returned inline as the tool result.
 
 ## Dependencies
 
@@ -77,3 +96,7 @@ Same fields as word elements, but each element represents a single character. Th
 - [ ] Coordinates are rounded to 1 decimal place.
 - [ ] A typical page (~300 words) at word granularity produces a response ≤ 30 KB.
 - [ ] The tool only accesses the requested page, not the full document.
+- [ ] When `outputFile` is provided, the full JSON is written to that path and the tool returns a summary containing page dimensions, element count, file path, and file size.
+- [ ] When `outputFile` is provided, the inline response is small (< 1 KB) regardless of page density.
+- [ ] When `outputFile` is omitted, behavior is identical to the current implementation (full data returned inline).
+- [ ] The `outputFile` parameter rejects relative paths and path traversal sequences.

@@ -95,6 +95,42 @@ public static class TestPdfGenerator
     }
 
     /// <summary>
+    /// Creates a PDF with enough words to produce > 30 KB of JSON at word granularity.
+    /// Used to test outputFile behavior on dense pages.
+    /// </summary>
+    public static string CreateDenseTextTestPdf()
+    {
+        var path = GetTestDataPath("sample-text-dense.pdf");
+        if (File.Exists(path)) return path;
+
+        var builder = new PdfDocumentBuilder();
+        var helvetica = builder.AddStandard14Font(Standard14Font.Helvetica);
+
+        var page = builder.AddPage(PageSize.Letter);
+
+        // Generate ~600 words — each word element serializes to ~100 bytes of JSON,
+        // so 600 words ≈ 60 KB which comfortably exceeds 30 KB.
+        var words = new List<string>();
+        for (int i = 1; i <= 600; i++)
+            words.Add($"denseword{i}");
+
+        double y = 750;
+        int wordsPerLine = 8;
+        for (int i = 0; i < words.Count; i += wordsPerLine)
+        {
+            var lineWords = words.Skip(i).Take(wordsPerLine);
+            var line = string.Join(" ", lineWords);
+            page.AddText(line, 8, new PdfPoint(36, y), helvetica);
+            y -= 10;
+        }
+
+        var bytes = builder.Build();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, bytes);
+        return path;
+    }
+
+    /// <summary>
     /// Creates a PDF with known graphic elements for graphics extraction tests.
     /// Page 1: Rectangles (filled red, stroked blue) and straight lines (black, green).
     /// Page 2: Complex paths (circle, ellipse) that generate Bézier curves.

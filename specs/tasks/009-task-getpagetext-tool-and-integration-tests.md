@@ -20,14 +20,18 @@ Define a tool class in `Tools/` that:
 1. Is decorated with the `[McpServerToolType]` attribute for automatic discovery.
 2. Contains a single tool method decorated with `[McpServerTool]` and `[Description]` attributes.
 3. Uses primary constructor to inject `IInputValidationService` and the page text service interface.
-4. Accepts three parameters, each with `[Description]` attributes:
+4. Accepts four parameters, each with `[Description]` attributes:
    - `pdfPath` (string, required) — Absolute path to the PDF file
    - `page` (int, required) — 1-based page number
    - `granularity` (string, optional) — Level of detail: `"words"` or `"letters"`. Use a C# default parameter value (`string granularity = "words"`) so the MCP SDK advertises the default in the tool schema. Do not handle null granularity in the service.
+   - `outputFile` (string?, optional) — If provided, write the full JSON result to this file path and return a compact summary instead. Use a C# default of `null`.
 5. The tool method must:
-   - Validate the file path using `IInputValidationService.ValidateFilePath()` — this is the **only** validation the tool performs directly; granularity validation and page number validation are handled inside the service (matching the established pattern where `GetPdfInfoTool` only validates file path)
-   - Delegate to the page text service for extraction (passing through all parameters)
-   - Serialize the result using `JsonSerializer.Serialize()` with `SerializerConfig.Options`
+   - Validate the file path using `IInputValidationService.ValidateFilePath()`
+   - Validate the minimum page number using `IInputValidationService.ValidatePageMinimum()`
+   - Validate the granularity value using `IInputValidationService.ValidateGranularity()`
+   - These three validations are performed at the tool boundary for fail-fast behavior (matching the established pattern from Task 018 and the current implementation)
+   - When `outputFile` is null: delegate to `IPageTextService.Extract(pdfPath, page, granularity)` and serialize the returned `PageTextDto` using `JsonSerializer.Serialize(result, SerializerConfig.Options)`
+   - When `outputFile` is provided: delegate to `IPageTextService.ExtractToFile(pdfPath, page, granularity, outputFile)` and serialize the returned `PageTextSummaryDto` using `JsonSerializer.Serialize(result, SerializerConfig.Options)`
    - Return the serialized JSON string
    - Catch `ArgumentException` and rethrow as `McpException` to preserve error messages for the agent
 
@@ -38,6 +42,7 @@ The `[Description]` on the tool method must clearly communicate to AI agents:
 - That it operates on a single page
 - The purpose of the granularity parameter and its valid values
 - That the default granularity is word-level
+- The purpose of the `outputFile` parameter: when provided, the full result is written to a file and a compact summary is returned inline, enabling callers to handle large pages without payload limits
 
 ### Parameter Descriptions
 
@@ -45,6 +50,7 @@ Each parameter's `[Description]` must explain:
 - `pdfPath`: That it must be an absolute filesystem path to a PDF file
 - `page`: That it is a 1-based page number
 - `granularity`: The two valid values (`"words"`, `"letters"`), the default value, and the trade-off (letters produces ~5× more data)
+- `outputFile`: That it is optional, must be an absolute path, and when provided the full JSON is written to this file instead of being returned inline
 
 ## Acceptance Criteria
 
@@ -62,6 +68,11 @@ Each parameter's `[Description]` must explain:
 - [ ] Invalid (non-PDF) file returns an MCP error with "could not be opened as a PDF" in the message.
 - [ ] Out-of-range page number returns an MCP error with a descriptive message including the valid page range.
 - [ ] Invalid granularity value returns an MCP error with a descriptive message listing valid options.
+- [ ] When `outputFile` is provided, the tool writes the full JSON to the specified path and returns a compact summary with `elementCount`, `outputFile`, and `sizeBytes`.
+- [ ] When `outputFile` is provided, the inline response is small (< 1 KB) regardless of page density.
+- [ ] When `outputFile` is omitted, the tool returns the full data inline (backward-compatible).
+- [ ] A relative `outputFile` path returns an MCP error.
+- [ ] An `outputFile` path containing `..` returns an MCP error.
 
 ## Testing Requirements
 
@@ -87,3 +98,9 @@ Integration tests must follow the established MCP protocol test pattern from `Ge
 12. **Page out of range** — Call with a page number beyond the document's page count. Verify the error includes the valid page range.
 13. **Page number zero or negative** — Call with `page = 0`. Verify the error contains "Page number must be 1 or greater."
 14. **Invalid granularity** — Call with `granularity = "paragraphs"` (or another invalid value). Verify the error lists valid granularity options.
+15. **Output file write** — Call the tool with a valid `outputFile` path (e.g., a temp directory path). Verify the response is a compact summary with `elementCount`, `outputFile`, and `sizeBytes` fields. Verify the response size is < 1 KB. Read back the file and verify it contains valid JSON with the full `page`, `width`, `height`, and `elements` array.
+16. **Output file with dense page** — Call the tool with `outputFile` on a page that produces > 30 KB of text data (using the dense test PDF from Task 008's test data). Verify the inline summary remains < 1 KB, while the file contains the complete data.
+17. **Output file overwrites existing** — Create a file at the target path, then call the tool with the same `outputFile`. Verify the file is overwritten and contains the new data.
+18. **Output file default (omitted)** — Call the tool without `outputFile`. Verify the full text data is returned inline (no file written), confirming backward compatibility.
+19. **Output file relative path rejected** — Call with a relative `outputFile` path. Verify the MCP error response mentions an absolute path is required.
+20. **Output file path traversal rejected** — Call with an `outputFile` containing `..`. Verify the MCP error response mentions invalid path.
