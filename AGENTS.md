@@ -224,6 +224,7 @@ byte[] rawBytes = pageReader.GetImage(); // BGRA format
 - Docnet has **native dependencies** (PDFium binaries) bundled per platform in the NuGet package. These are auto-selected at runtime — no manual configuration needed.
 - Dispose `IDocReader` and `IPageReader` via `using` — they hold native resources.
 - Docnet operates independently from PdfPig. Each library opens the PDF file separately, which is fine for short-lived tool calls.
+- **Docnet/PDFium is not thread-safe.** The underlying PDFium native library does not support concurrent calls from multiple threads. Use a `static SemaphoreSlim(1, 1)` in the rendering service to serialize all calls through `DocLib.Instance`. Accept `CancellationToken` in the rendering method so that callers queued behind the semaphore can be cancelled by the MCP client.
 
 ---
 

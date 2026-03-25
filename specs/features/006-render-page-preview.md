@@ -46,6 +46,7 @@ The tool must return its response as multiple MCP content blocks:
 7. The PNG encoding must use a lightweight approach — not a heavy imaging library. A manual PNG writer using `System.IO.Compression.ZLibStream` (built into .NET 6+) is sufficient for encoding the composited RGB pixel data and avoids adding any external imaging dependency.
 8. Both `IDocReader` and `IPageReader` must be disposed after use (they hold native resources).
 9. The tool must accept a DPI range of 72–600. Values outside this range must be rejected with a clear error message.
+10. The rendering engine uses native platform libraries that are not safe for concurrent use from multiple threads. The server must ensure that concurrent rendering requests are serialized so that only one rendering operation executes at a time. Other tool types (text, graphics, images) are not affected by this constraint and may execute concurrently.
 
 ## Response Size Considerations
 
@@ -81,3 +82,4 @@ To manage data volume:
 - [ ] DPI values outside the 72–600 range are rejected with a clear error message.
 - [ ] Invalid or corrupted PDF files produce a clear error message, not a crash.
 - [ ] Pages that PDFium cannot render produce a clear error message rather than empty/corrupt image data.
+- [ ] When multiple `RenderPagePreview` calls are invoked in parallel, each call succeeds independently — no crashes or corrupted output from concurrent native library access.

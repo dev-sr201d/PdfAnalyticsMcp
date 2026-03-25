@@ -20,10 +20,10 @@ public class RenderPagePreviewServiceTests
     }
 
     [Fact]
-    public void Render_AtDefaultDpi_ReturnsValidResult()
+    public async Task Render_AtDefaultDpi_ReturnsValidResult()
     {
         var path = GetTestDataPath("sample-with-metadata.pdf");
-        var result = _service.Render(path, 1, 150);
+        var result = await _service.RenderAsync(path, 1, 150);
 
         Assert.Equal(1, result.Page);
         Assert.Equal(150, result.Dpi);
@@ -34,53 +34,53 @@ public class RenderPagePreviewServiceTests
     }
 
     [Fact]
-    public void Render_At150Dpi_ReturnsExpectedDimensions()
+    public async Task Render_At150Dpi_ReturnsExpectedDimensions()
     {
         // US Letter: 612×792 points, at 150 DPI => ~1275×1650 pixels
         var path = GetTestDataPath("sample-with-metadata.pdf");
-        var result = _service.Render(path, 1, 150);
+        var result = await _service.RenderAsync(path, 1, 150);
 
         Assert.InRange(result.Width, 1270, 1280);
         Assert.InRange(result.Height, 1645, 1655);
     }
 
     [Fact]
-    public void Render_At72Dpi_ReturnsSmallerDimensions()
+    public async Task Render_At72Dpi_ReturnsSmallerDimensions()
     {
         // US Letter: 612×792 points, at 72 DPI => ~612×792 pixels
         var path = GetTestDataPath("sample-with-metadata.pdf");
-        var result = _service.Render(path, 1, 72);
+        var result = await _service.RenderAsync(path, 1, 72);
 
         Assert.InRange(result.Width, 607, 617);
         Assert.InRange(result.Height, 787, 797);
 
         // Verify smaller than 150 DPI
-        var result150 = _service.Render(path, 1, 150);
+        var result150 = await _service.RenderAsync(path, 1, 150);
         Assert.True(result.Width < result150.Width);
         Assert.True(result.Height < result150.Height);
     }
 
     [Fact]
-    public void Render_At300Dpi_ReturnsLargerDimensions()
+    public async Task Render_At300Dpi_ReturnsLargerDimensions()
     {
         // US Letter: 612×792 points, at 300 DPI => ~2550×3300 pixels
         var path = GetTestDataPath("sample-with-metadata.pdf");
-        var result = _service.Render(path, 1, 300);
+        var result = await _service.RenderAsync(path, 1, 300);
 
         Assert.InRange(result.Width, 2545, 2555);
         Assert.InRange(result.Height, 3295, 3305);
 
         // Verify larger than 150 DPI
-        var result150 = _service.Render(path, 1, 150);
+        var result150 = await _service.RenderAsync(path, 1, 150);
         Assert.True(result.Width > result150.Width);
         Assert.True(result.Height > result150.Height);
     }
 
     [Fact]
-    public void Render_Page2_ReturnsValidResult()
+    public async Task Render_Page2_ReturnsValidResult()
     {
         var path = GetTestDataPath("sample-with-metadata.pdf");
-        var result = _service.Render(path, 2, 150);
+        var result = await _service.RenderAsync(path, 2, 150);
 
         Assert.Equal(2, result.Page);
         Assert.True(result.PngData.Length >= 8);
@@ -88,70 +88,89 @@ public class RenderPagePreviewServiceTests
     }
 
     [Fact]
-    public void Render_DpiTooLow_ThrowsArgumentException()
+    public async Task Render_DpiTooLow_ThrowsArgumentException()
     {
         var path = GetTestDataPath("sample-with-metadata.pdf");
-        var ex = Assert.Throws<ArgumentException>(() => _service.Render(path, 1, 50));
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _service.RenderAsync(path, 1, 50));
         Assert.Contains("72", ex.Message);
         Assert.Contains("600", ex.Message);
     }
 
     [Fact]
-    public void Render_DpiTooHigh_ThrowsArgumentException()
+    public async Task Render_DpiTooHigh_ThrowsArgumentException()
     {
         var path = GetTestDataPath("sample-with-metadata.pdf");
-        var ex = Assert.Throws<ArgumentException>(() => _service.Render(path, 1, 700));
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _service.RenderAsync(path, 1, 700));
         Assert.Contains("72", ex.Message);
         Assert.Contains("600", ex.Message);
     }
 
     [Fact]
-    public void Render_DpiAtMinBoundary_Succeeds()
+    public async Task Render_DpiAtMinBoundary_Succeeds()
     {
         var path = GetTestDataPath("sample-with-metadata.pdf");
-        var result = _service.Render(path, 1, 72);
+        var result = await _service.RenderAsync(path, 1, 72);
 
         Assert.Equal(72, result.Dpi);
         Assert.True(result.PngData.Length > 0);
     }
 
     [Fact]
-    public void Render_DpiAtMaxBoundary_Succeeds()
+    public async Task Render_DpiAtMaxBoundary_Succeeds()
     {
         var path = GetTestDataPath("sample-with-metadata.pdf");
-        var result = _service.Render(path, 1, 600);
+        var result = await _service.RenderAsync(path, 1, 600);
 
         Assert.Equal(600, result.Dpi);
         Assert.True(result.PngData.Length > 0);
     }
 
     [Fact]
-    public void Render_PageZero_ThrowsArgumentException()
+    public async Task Render_PageZero_ThrowsArgumentException()
     {
         var path = GetTestDataPath("sample-with-metadata.pdf");
-        Assert.Throws<ArgumentException>(() => _service.Render(path, 0, 150));
+        await Assert.ThrowsAsync<ArgumentException>(() => _service.RenderAsync(path, 0, 150));
     }
 
     [Fact]
-    public void Render_PageBeyondCount_ThrowsArgumentException()
+    public async Task Render_PageBeyondCount_ThrowsArgumentException()
     {
         var path = GetTestDataPath("sample-with-metadata.pdf");
-        Assert.Throws<ArgumentException>(() => _service.Render(path, 999, 150));
+        await Assert.ThrowsAsync<ArgumentException>(() => _service.RenderAsync(path, 999, 150));
     }
 
     [Fact]
-    public void Render_InvalidPdfFile_ThrowsArgumentException()
+    public async Task Render_InvalidPdfFile_ThrowsArgumentException()
     {
         var path = GetTestDataPath("not-a-pdf.txt");
-        var ex = Assert.Throws<ArgumentException>(() => _service.Render(path, 1, 150));
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _service.RenderAsync(path, 1, 150));
         Assert.Equal("The file could not be opened as a PDF.", ex.Message);
     }
 
     [Fact]
-    public void Render_PngDataContainsValidIhdr()
+    public async Task Render_LockedFile_ThrowsArgumentExceptionWithAccessMessage()
+    {
+        var source = GetTestDataPath("sample-with-metadata.pdf");
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.pdf");
+        File.Copy(source, tempPath);
+        try
+        {
+            using var stream = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+            var ex = await Assert.ThrowsAsync<ArgumentException>(() => _service.RenderAsync(tempPath, 1, 150));
+            Assert.Equal($"The file could not be accessed: {tempPath}. It may be in use by another process.", ex.Message);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task Render_PngDataContainsValidIhdr()
     {
         var path = GetTestDataPath("sample-with-metadata.pdf");
-        var result = _service.Render(path, 1, 150);
+        var result = await _service.RenderAsync(path, 1, 150);
 
         // IHDR starts after signature (8 bytes) + 4 bytes length + 4 bytes "IHDR" type
         int ihdrDataOffset = 8 + 4 + 4;
@@ -160,5 +179,16 @@ public class RenderPagePreviewServiceTests
 
         Assert.Equal(result.Width, parsedWidth);
         Assert.Equal(result.Height, parsedHeight);
+    }
+
+    [Fact]
+    public async Task Render_CancelledToken_ThrowsOperationCanceledException()
+    {
+        var path = GetTestDataPath("sample-with-metadata.pdf");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => _service.RenderAsync(path, 1, 150, cts.Token));
     }
 }

@@ -4,5 +4,5 @@ namespace PdfAnalyticsMcp.Services;
 
 public interface IRenderPagePreviewService
 {
-    RenderPagePreviewResult Render(string pdfPath, int page, int dpi);
+    Task<RenderPagePreviewResult> RenderAsync(string pdfPath, int page, int dpi, CancellationToken cancellationToken = default);
 }

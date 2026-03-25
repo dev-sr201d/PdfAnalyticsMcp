@@ -4,10 +4,12 @@
 
 Create the data transfer object and rendering service for the `RenderPagePreview` tool (FRD-006). The service uses Docnet's scaling factor API to render a single PDF page at a configurable DPI, then encodes the raw BGRA pixel output to PNG using the encoder from Task 014. The service returns a result DTO containing the rendered PNG bytes and rendering metadata. This service operates independently of PdfPig.
 
+Because Docnet wraps the native PDFium library which is **not thread-safe**, the service must serialize all access to `DocLib.Instance` using a static `SemaphoreSlim(1, 1)`. The rendering method must accept a `CancellationToken` so that callers queued behind the semaphore can be cancelled by the MCP client.
+
 ## Traces To
 
 - **FRD:** FRD-006 (Page Rendering Preview — RenderPagePreview)
-- **PRD:** REQ-5 (Page rendering), REQ-7 (Page-by-page processing), REQ-8 (Robust error handling)
+- **PRD:** REQ-5 (Page rendering), REQ-7 (Page-by-page processing), REQ-8 (Robust error handling), REQ-10 (Concurrent tool safety)
 - **ADRs:** ADR-0004 (Docnet/PDF rendering)
 
 ## Dependencies
@@ -43,30 +45,35 @@ Define a response DTO in the `Models/` directory as an immutable `record` type:
 ### Service Interface
 
 Define a service interface `IRenderPagePreviewService` in `Services/` with a method that:
-- Accepts a file path (string), a 1-based page number (int), and a DPI value (int)
-- Returns the render page preview result DTO
+- Accepts a file path (string), a 1-based page number (int), a DPI value (int), and a `CancellationToken`
+- Returns the render page preview result DTO (can be `Task<RenderPagePreviewResult>` to support async semaphore waiting)
 - Throws `ArgumentException` for validation failures (invalid page, invalid DPI, unopenable file)
+- Throws `OperationCanceledException` if the cancellation token is triggered while waiting for the semaphore
 
 ### Service Implementation — `RenderPagePreviewService`
 
 The service must:
 
-1. **Validate DPI** — Reject values outside the range 72–600 with a clear `ArgumentException` message (e.g., "DPI must be between 72 and 600.").
-2. **Open the PDF using Docnet's scaling factor API:**
+1. **Validate DPI** — Reject values outside the range 72–600 with a clear `ArgumentException` message (e.g., "DPI must be between 72 and 600."). This validation can occur before acquiring the semaphore.
+2. **Acquire the rendering semaphore** — Use a `private static readonly SemaphoreSlim _renderSemaphore = new(1, 1)` to serialize all Docnet/PDFium operations. Call `await _renderSemaphore.WaitAsync(cancellationToken)` before any Docnet API calls. Release the semaphore in a `finally` block to ensure it is always released, even on exceptions.
+3. **Open the PDF using Docnet's scaling factor API:**
    ```
    DocLib.Instance.GetDocReader(pdfPath, new PageDimensions(scalingFactor))
    ```
    where `scalingFactor = dpi / 72.0`. The `PageDimensions(double scalingFactor)` constructor accepts a scaling factor (1.0 = 72 DPI). This renders the page at the requested DPI without needing to know the intrinsic page dimensions upfront.
    - If Docnet cannot open the file, catch the exception and throw `ArgumentException` with a message indicating the file could not be rendered as a PDF.
    - Dispose `IDocReader` via `using` declaration.
-3. **Validate the page number** using `IInputValidationService.ValidatePageNumber(page, pageCount)`. Obtain the page count from `docReader.GetPageCount()`.
-4. **Get the page reader** using `docReader.GetPageReader(page - 1)` (Docnet uses 0-based indexing).
+4. **Validate the page number** using `IInputValidationService.ValidatePageNumber(page, pageCount)`. Obtain the page count from `docReader.GetPageCount()`.
+5. **Get the page reader** using `docReader.GetPageReader(page - 1)` (Docnet uses 0-based indexing).
    - Dispose `IPageReader` via `using` declaration.
-5. **Retrieve rendered pixel dimensions** from `pageReader.GetPageWidth()` and `pageReader.GetPageHeight()`.
-6. **Get the raw BGRA pixel data** from `pageReader.GetImage()`.
-7. **Validate the pixel data** — If `GetImage()` returns null or an empty array, throw `ArgumentException` indicating the page could not be rendered.
-8. **Encode to PNG** using the BGRA-to-PNG encoder utility from Task 014, passing the raw pixel data, width, and height.
-9. **Return the result DTO** with page number, DPI, pixel dimensions, and encoded PNG bytes.
+6. **Retrieve rendered pixel dimensions** from `pageReader.GetPageWidth()` and `pageReader.GetPageHeight()`.
+7. **Get the raw BGRA pixel data** from `pageReader.GetImage()`.
+8. **Validate the pixel data** — If `GetImage()` returns null or an empty array, throw `ArgumentException` indicating the page could not be rendered.
+9. **Encode to PNG** using the BGRA-to-PNG encoder utility from Task 014, passing the raw pixel data, width, and height.
+10. **Release the semaphore** — In the `finally` block after all Docnet operations complete.
+11. **Return the result DTO** with page number, DPI, pixel dimensions, and encoded PNG bytes.
+
+> **Concurrency note:** The static semaphore ensures that only one thread at a time can use PDFium's native library, preventing `AccessViolationException` and memory corruption. The semaphore is `static` because the constraint is process-wide (there is only one `DocLib.Instance`). Fast validations (DPI range, file path) should execute before the semaphore to avoid unnecessary queuing.
 
 ### Docnet API Reference
 
@@ -105,6 +112,9 @@ No new test PDF generation is required.
 - [ ] The service throws `ArgumentException` when the file cannot be opened by Docnet.
 - [ ] The service correctly translates 1-based page numbers to Docnet's 0-based indexing (page 1 → index 0, page 2 → index 1).
 - [ ] Native resources (`IDocReader`, `IPageReader`) are properly disposed on both success and failure paths.
+- [ ] All Docnet/PDFium operations are serialized through a static `SemaphoreSlim(1, 1)`, acquired before any `DocLib.Instance` call and released in a `finally` block.
+- [ ] The rendering method accepts a `CancellationToken` that is passed to `SemaphoreSlim.WaitAsync()`, allowing queued callers to be cancelled.
+- [ ] Fast validations (DPI range, file path existence) execute before acquiring the semaphore.
 - [ ] The service is registered in `Program.cs` DI container.
 
 ## Testing Requirements

@@ -9,7 +9,7 @@ namespace PdfAnalyticsMcpConsole;
 
 public static class Program
 {
-    public static int Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
         if (args.Length == 0)
         {
@@ -50,7 +50,7 @@ public static class Program
                     return RunGetPageImages(args, validationService, pageImagesService, jsonOptions);
 
                 case "render":
-                    return RunRenderPagePreview(args, validationService, renderService, jsonOptions);
+                    return await RunRenderPagePreview(args, validationService, renderService, jsonOptions);
 
                 case "debug-ops":
                     return RunDebugOps(args, validationService);
@@ -177,7 +177,7 @@ public static class Program
         return 0;
     }
 
-    private static int RunRenderPagePreview(
+    private static async Task<int> RunRenderPagePreview(
         string[] args,
         IInputValidationService validationService,
         IRenderPagePreviewService renderService,
@@ -205,7 +205,7 @@ public static class Program
         }
 
         validationService.ValidateFilePath(pdfPath);
-        var result = renderService.Render(pdfPath, page, dpi);
+        var result = await renderService.RenderAsync(pdfPath, page, dpi);
 
         // Write PNG to file next to the source PDF
         var outputPath = Path.Combine(

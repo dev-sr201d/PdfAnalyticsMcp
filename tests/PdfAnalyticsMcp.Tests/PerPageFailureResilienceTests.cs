@@ -106,33 +106,33 @@ public class PerPageFailureResilienceTests
     // --- RenderPagePreviewService: validation errors pass through unchanged ---
 
     [Fact]
-    public void RenderService_PageOutOfRange_ReturnsValidationError_NotPerPageError()
+    public async Task RenderService_PageOutOfRange_ReturnsValidationError_NotPerPageError()
     {
         var path = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
 
-        var ex = Assert.Throws<ArgumentException>(() => _renderService.Render(path, 99, 150));
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _renderService.RenderAsync(path, 99, 150));
 
         Assert.Contains("does not exist", ex.Message);
         Assert.DoesNotContain("An error occurred rendering page", ex.Message);
     }
 
     [Fact]
-    public void RenderService_PageZero_ReturnsValidationError_NotPerPageError()
+    public async Task RenderService_PageZero_ReturnsValidationError_NotPerPageError()
     {
         var path = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
 
-        var ex = Assert.Throws<ArgumentException>(() => _renderService.Render(path, 0, 150));
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _renderService.RenderAsync(path, 0, 150));
 
         Assert.Contains("Page number must be 1 or greater", ex.Message);
         Assert.DoesNotContain("An error occurred rendering page", ex.Message);
     }
 
     [Fact]
-    public void RenderService_DpiOutOfRange_ReturnsValidationError_NotPerPageError()
+    public async Task RenderService_DpiOutOfRange_ReturnsValidationError_NotPerPageError()
     {
         var path = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
 
-        var ex = Assert.Throws<ArgumentException>(() => _renderService.Render(path, 1, 50));
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _renderService.RenderAsync(path, 1, 50));
 
         Assert.Contains("72", ex.Message);
         Assert.Contains("600", ex.Message);
@@ -177,13 +177,13 @@ public class PerPageFailureResilienceTests
     }
 
     [Fact]
-    public void RenderService_ValidPage_SucceedsAfterValidationError()
+    public async Task RenderService_ValidPage_SucceedsAfterValidationError()
     {
         var path = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
 
-        Assert.Throws<ArgumentException>(() => _renderService.Render(path, 99, 150));
+        await Assert.ThrowsAsync<ArgumentException>(() => _renderService.RenderAsync(path, 99, 150));
 
-        var result = _renderService.Render(path, 1, 150);
+        var result = await _renderService.RenderAsync(path, 1, 150);
         Assert.True(result.PngData.Length > 0);
     }
 }

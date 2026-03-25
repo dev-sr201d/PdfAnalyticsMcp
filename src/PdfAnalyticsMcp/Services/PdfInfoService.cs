@@ -13,7 +13,11 @@ public class PdfInfoService : IPdfInfoService
         {
             document = PdfDocument.Open(pdfPath);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ArgumentException($"The file could not be accessed: {pdfPath}. It may be in use by another process.");
+        }
+        catch (Exception ex) when (ex is not ArgumentException)
         {
             throw new ArgumentException("The file could not be opened as a PDF.");
         }

@@ -1,13 +1,20 @@
-# Task 017: Standardize Invalid-PDF Error Message Across Engines
+# Task 017: Classify File-Open Errors — I/O Access vs. Invalid PDF
 
 ## Description
 
-The server uses two independent engines to open PDF files: PdfPig (text, graphics, images extraction) and Docnet (page rendering). When a non-PDF file is provided, both engines must return the same user-facing error message. Currently, the extraction services return `"The file could not be opened as a PDF."` while the rendering service returns `"The file could not be rendered as a PDF."` This inconsistency violates FRD-007's requirement that the invalid-PDF error "must apply consistently regardless of which underlying engine is used to open the file."
+The server uses two independent engines to open PDF files: PdfPig (text, graphics, images extraction) and Docnet (page rendering). FRD-007 Functional Requirement 9 requires that file-open errors be classified into two distinct categories:
+
+1. **File access/I/O errors** (file locked, permission denied, sharing violation) → `"The file could not be accessed: {pdfPath}. It may be in use by another process."`
+2. **Invalid PDF format errors** (not a PDF, corrupt header) → `"The file could not be opened as a PDF."`
+
+Currently, all five services catch `Exception` broadly on file open and throw a single `ArgumentException("The file could not be opened as a PDF.")`, making it impossible to distinguish transient concurrency-related file access failures from permanent file format problems. This violates FRD-007 Requirement 9 and prevents diagnosis of concurrency issues when multiple tools access the same PDF in parallel.
+
+Both error messages must be consistent across both engines (PdfPig and Docnet).
 
 ## Traces To
 
-- **Feature:** FRD-007 (Error Handling & Input Validation)
-- **PRD:** REQ-8 (Robust error handling)
+- **Feature:** FRD-007 (Error Handling & Input Validation), Functional Requirement 9
+- **PRD:** REQ-8 (Robust error handling), REQ-10 (Concurrent tool safety)
 
 ## Dependencies
 
@@ -16,21 +23,41 @@ The server uses two independent engines to open PDF files: PdfPig (text, graphic
 
 ## Technical Requirements
 
-1. The `RenderPagePreviewService` must catch exceptions thrown when Docnet fails to open a file and throw an `ArgumentException` with the message `"The file could not be opened as a PDF."` — the same message used by all extraction services (`PdfInfoService`, `PageTextService`, `PageGraphicsService`, `PageImagesService`).
+### File-Open Exception Handling (All Services)
 
-2. The change is limited to the error message string in the rendering service's PDF-open exception handler. The existing `when` guard (`catch (Exception ex) when (ex is not ArgumentException)`) must be preserved — it ensures that `ArgumentException` from validation (e.g., page out of range) is not caught by the PDF-open handler. Only the message string changes.
+1. In each service that opens a PDF file (`PdfInfoService`, `PageTextService`, `PageGraphicsService`, `PageImagesService`, `RenderPagePreviewService`), the file-open catch block must be updated to check the exception type **before** falling through to the generic invalid-PDF error:
 
-3. Existing unit tests and integration tests for `RenderPagePreview` that assert the invalid-PDF error message must be updated to expect the standardized message.
+   - Catch `IOException` or `UnauthorizedAccessException` first → throw `ArgumentException` with the message `"The file could not be accessed: {pdfPath}. It may be in use by another process."`.
+   - For all other exceptions → throw `ArgumentException` with the message `"The file could not be opened as a PDF."`.
+
+2. The existing `when` guard in `RenderPagePreviewService` (`catch (Exception ex) when (ex is not ArgumentException)`) must be preserved — it ensures that `ArgumentException` from validation (e.g., page out of range) is not caught by the file-open handler.
+
+3. For the four PdfPig-based services (`PdfInfoService`, `PageTextService`, `PageGraphicsService`, `PageImagesService`), which currently use an unguarded `catch (Exception)`, the same `when (ex is not ArgumentException)` guard should be added for consistency and safety.
+
+### Consistency Requirement
+
+4. Both error messages must be identical across all five services, regardless of which engine (PdfPig or Docnet) is used to open the file. The I/O access error message includes `{pdfPath}` to help the caller identify which file had the access issue.
+
+### Error Message Inclusion in `{pdfPath}`
+
+5. The `{pdfPath}` in the I/O access error message must be the same path provided by the caller — it must not be resolved, expanded, or otherwise transformed. This aligns with FRD-007 Functional Requirement 5 (never expose internal file paths beyond what the user provided).
 
 ## Acceptance Criteria
 
-- [ ] Calling `RenderPagePreview` with a non-PDF file (e.g., `tests/TestData/not-a-pdf.txt`) returns the error message `"The file could not be opened as a PDF."`.
-- [ ] The error message is identical to what `GetPdfInfo`, `GetPageText`, `GetPageGraphics`, and `GetPageImages` return for the same non-PDF file.
-- [ ] All existing unit tests for `RenderPagePreviewService` pass with the updated message.
-- [ ] All existing integration tests for `RenderPagePreview` pass with the updated message.
+- [ ] Calling any tool when the PDF file is locked by another process returns the error message `"The file could not be accessed: {pdfPath}. It may be in use by another process."`.
+- [ ] Calling any tool with a non-PDF file (e.g., `tests/TestData/not-a-pdf.txt`) returns the error message `"The file could not be opened as a PDF."`.
+- [ ] The I/O access error message is identical across all five tools (PdfPig-based and Docnet-based).
+- [ ] The invalid-PDF error message is identical across all five tools.
+- [ ] The two error messages are clearly distinguishable from each other.
+- [ ] All existing unit tests for all services pass (updated where necessary for the new exception handling structure).
+- [ ] All existing integration tests for all tools pass.
+- [ ] `ArgumentException` from validation (e.g., page out of range) is not caught by the file-open handlers.
 
 ## Testing Requirements
 
-- Update any existing `RenderPagePreviewService` unit test that asserts the invalid-PDF error message string.
-- Update any existing `RenderPagePreviewIntegrationTests` test that asserts the invalid-PDF error message string.
-- No new test classes are required — this is a message correction in existing tests.
+- Add unit tests to each service's test class that verify the I/O access error path:
+  - Use a file locked with a `FileStream` (e.g., `FileShare.None`) to simulate an `IOException`.
+  - Assert the error message matches `"The file could not be accessed: {pdfPath}. It may be in use by another process."`.
+- Update any existing unit tests that assert the invalid-PDF error message if the exception handling structure changes (e.g., adding `when` guards).
+- Verify existing non-PDF file tests still produce `"The file could not be opened as a PDF."`.
+- No new integration test classes are required — cross-tool consistency is verified in Task 020.

@@ -108,6 +108,25 @@ public class PdfInfoServiceTests
     }
 
     [Fact]
+    public void Extract_LockedFile_ThrowsArgumentExceptionWithAccessMessage()
+    {
+        var source = GetTestDataPath("sample-with-metadata.pdf");
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.pdf");
+        File.Copy(source, tempPath);
+        try
+        {
+            using var stream = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+            var ex = Assert.Throws<ArgumentException>(() => _service.Extract(tempPath));
+            Assert.Equal($"The file could not be accessed: {tempPath}. It may be in use by another process.", ex.Message);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
     public void Extract_NullMetadata_SerializesAsOmitted()
     {
         var path = GetTestDataPath("sample-no-metadata.pdf");

@@ -18,11 +18,8 @@
     },
     "pdf-analytics": {
       "type": "stdio",
-      "command": "dotnet",
-      "args": [
-        "exec",
-        "${workspaceFolder}/publish/PdfAnalyticsMcp.dll"
-      ]
+      "command": "${workspaceFolder}\\src\\PdfAnalyticsMcp\\bin\\Release\\net9.0\\PdfAnalyticsMcp.exe",
+      "args": []
     }
   }
 }

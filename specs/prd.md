@@ -73,6 +73,7 @@ The primary users are **AI agents** (LLM-based systems) that consume MCP tools, 
 - [REQ-8] **Robust error handling** — The server must return clear, descriptive error messages when a PDF cannot be opened, a page number is out of range, or an extraction operation fails for a specific page.
 
 - [REQ-9] **Local stdio transport** — The server must operate as a local MCP server using stdio as its transport. MCP-compatible clients must be able to launch the server as a child process and communicate with it over stdin/stdout without requiring network setup, HTTP endpoints, or additional infrastructure.
+- [REQ-10] **Concurrent tool safety** — The server must remain correct and stable when the MCP client invokes multiple tools in parallel against the same PDF file. Concurrent tool calls must not cause crashes, data corruption, or transient failures due to resource contention.
 
 ## 5. User Stories
 

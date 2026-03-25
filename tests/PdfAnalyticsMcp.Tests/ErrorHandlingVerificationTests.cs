@@ -145,6 +145,27 @@ public class ErrorHandlingVerificationTests : IDisposable
     }
 
     [Fact]
+    public async Task AllTools_LockedFile_ReturnIdenticalErrorMessage()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = GetTestDataPath("sample-with-metadata.pdf");
+        using var fileLock = new FileStream(pdfPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var messages = new Dictionary<string, string>();
+        foreach (var tool in AllTools)
+        {
+            var args = BuildToolArgs(tool, pdfPath: pdfPath, page: 1);
+            var response = await CallToolAsync(tool, args);
+            Assert.NotNull(response);
+            messages[tool] = ExtractValidationMessage(GetErrorText(response));
+        }
+
+        var expected = $"The file could not be accessed: {pdfPath}. It may be in use by another process.";
+        AssertAllMessagesEqual(expected, messages);
+    }
+
+    [Fact]
     public async Task PageLevelTools_PageZero_ReturnIdenticalErrorMessage()
     {
         await PerformHandshakeAsync();
@@ -181,6 +202,62 @@ public class ErrorHandlingVerificationTests : IDisposable
 
         var expected = "Page 99 does not exist. The document has 2 pages.";
         AssertAllMessagesEqual(expected, messages);
+    }
+
+    // ========================================================
+    // File Access vs. Invalid PDF Distinction Tests
+    // ========================================================
+
+    [Fact]
+    public async Task FileAccessVsInvalidPdf_PdfPigTool_ProduceDifferentErrors()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = GetTestDataPath("sample-with-metadata.pdf");
+        var nonPdfPath = GetTestDataPath("not-a-pdf.txt");
+
+        // Non-PDF file → invalid PDF error
+        var nonPdfResponse = await CallToolAsync("get_pdf_info", new { pdfPath = nonPdfPath });
+        Assert.NotNull(nonPdfResponse);
+        var invalidPdfMessage = ExtractValidationMessage(GetErrorText(nonPdfResponse));
+
+        // Locked file → file access error
+        using var fileLock = new FileStream(pdfPath, FileMode.Open, FileAccess.Read, FileShare.None);
+        var lockedResponse = await CallToolAsync("get_pdf_info", new { pdfPath });
+        Assert.NotNull(lockedResponse);
+        var fileAccessMessage = ExtractValidationMessage(GetErrorText(lockedResponse));
+        fileLock.Dispose();
+
+        Assert.NotEqual(invalidPdfMessage, fileAccessMessage);
+        Assert.Equal("The file could not be opened as a PDF.", invalidPdfMessage);
+        Assert.Equal($"The file could not be accessed: {pdfPath}. It may be in use by another process.", fileAccessMessage);
+    }
+
+    [Fact]
+    public async Task FileAccessVsInvalidPdf_DocnetTool_ProduceDifferentErrors()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = GetTestDataPath("sample-with-metadata.pdf");
+        var nonPdfPath = GetTestDataPath("not-a-pdf.txt");
+
+        // Non-PDF file → invalid PDF error
+        var nonPdfResponse = await CallToolAsync("render_page_preview",
+            new { pdfPath = nonPdfPath, page = 1, dpi = 150 });
+        Assert.NotNull(nonPdfResponse);
+        var invalidPdfMessage = ExtractValidationMessage(GetErrorText(nonPdfResponse));
+
+        // Locked file → file access error
+        using var fileLock = new FileStream(pdfPath, FileMode.Open, FileAccess.Read, FileShare.None);
+        var lockedResponse = await CallToolAsync("render_page_preview",
+            new { pdfPath, page = 1, dpi = 150 });
+        Assert.NotNull(lockedResponse);
+        var fileAccessMessage = ExtractValidationMessage(GetErrorText(lockedResponse));
+        fileLock.Dispose();
+
+        Assert.NotEqual(invalidPdfMessage, fileAccessMessage);
+        Assert.Equal("The file could not be opened as a PDF.", invalidPdfMessage);
+        Assert.Equal($"The file could not be accessed: {pdfPath}. It may be in use by another process.", fileAccessMessage);
     }
 
     // ========================================================
@@ -311,6 +388,27 @@ public class ErrorHandlingVerificationTests : IDisposable
         AssertNoInternalDetailsLeaked(errorText);
     }
 
+    [Theory]
+    [InlineData("get_pdf_info")]
+    [InlineData("get_page_text")]
+    [InlineData("get_page_graphics")]
+    [InlineData("get_page_images")]
+    [InlineData("render_page_preview")]
+    public async Task ErrorResponse_LockedFile_DoesNotLeakInternalDetails(string tool)
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = GetTestDataPath("sample-with-metadata.pdf");
+        using var fileLock = new FileStream(pdfPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var args = BuildToolArgs(tool, pdfPath: pdfPath, page: 1);
+        var response = await CallToolAsync(tool, args);
+        Assert.NotNull(response);
+
+        var errorText = GetErrorText(response);
+        AssertNoInternalDetailsLeaked(errorText);
+    }
+
     // ========================================================
     // Helper Methods
     // ========================================================
@@ -325,6 +423,7 @@ public class ErrorHandlingVerificationTests : IDisposable
         Assert.DoesNotContain("NullReferenceException", errorText);
         Assert.DoesNotContain("ArgumentException", errorText);
         Assert.DoesNotContain("InvalidOperationException", errorText);
+        Assert.DoesNotContain("IOException", errorText);
         Assert.DoesNotContain("PdfDocument", errorText);
         Assert.DoesNotContain("FileNotFoundException", errorText);
 
