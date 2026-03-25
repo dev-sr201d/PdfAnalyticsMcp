@@ -38,7 +38,7 @@ A JSON object containing:
 | `h` | double | Display height on the page (PDF points) |
 | `pixelWidth` | int | Image width in pixels |
 | `pixelHeight` | int | Image height in pixels |
-| `bitsPerPixel` | int | Color depth |
+| `bitsPerComponent` | int | Bits per color component (e.g., 8 for typical images) |
 | `data` | string? | Base64-encoded PNG data (only when `includeData = true`) |
 
 ## Functional Requirements

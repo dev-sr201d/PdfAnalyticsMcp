@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
 using PdfAnalyticsMcp.Services;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
@@ -24,6 +25,7 @@ public static class Program
             var pdfInfoService = new PdfInfoService();
             var pageTextService = new PageTextService(validationService);
             var pageGraphicsService = new PageGraphicsService(validationService);
+            var pageImagesService = new PageImagesService(validationService, NullLogger<PageImagesService>.Instance);
 
             var jsonOptions = new JsonSerializerOptions
             {
@@ -42,6 +44,9 @@ public static class Program
 
                 case "graphics":
                     return RunGetPageGraphics(args, validationService, pageGraphicsService, jsonOptions);
+
+                case "images":
+                    return RunGetPageImages(args, validationService, pageImagesService, jsonOptions);
 
                 case "debug-ops":
                     return RunDebugOps(args, validationService);
@@ -136,6 +141,34 @@ public static class Program
 
         validationService.ValidateFilePath(pdfPath);
         var result = pageGraphicsService.Extract(pdfPath, page);
+        Console.WriteLine(JsonSerializer.Serialize(result, jsonOptions));
+        return 0;
+    }
+
+    private static int RunGetPageImages(
+        string[] args,
+        IInputValidationService validationService,
+        IPageImagesService pageImagesService,
+        JsonSerializerOptions jsonOptions)
+    {
+        if (args.Length < 3)
+        {
+            Console.Error.WriteLine("Usage: PdfAnalyticsMcpConsole images <pdfPath> <page> [includeData]");
+            return 1;
+        }
+
+        var pdfPath = args[1];
+
+        if (!int.TryParse(args[2], out int page))
+        {
+            Console.Error.WriteLine("Error: page must be an integer.");
+            return 1;
+        }
+
+        bool includeData = args.Length >= 4 && bool.TryParse(args[3], out bool val) && val;
+
+        validationService.ValidateFilePath(pdfPath);
+        var result = pageImagesService.Extract(pdfPath, page, includeData);
         Console.WriteLine(JsonSerializer.Serialize(result, jsonOptions));
         return 0;
     }
@@ -240,12 +273,15 @@ public static class Program
               info      <pdfPath>                          Get PDF document metadata
               text      <pdfPath> <page> [granularity]     Get page text (granularity: words|letters, default: words)
               graphics  <pdfPath> <page>                   Get classified page graphics (rectangles, lines, paths)
+              images    <pdfPath> <page> [includeData]     Get page images (includeData: true|false, default: false)
 
             Examples:
               PdfAnalyticsMcpConsole info "C:\docs\report.pdf"
               PdfAnalyticsMcpConsole text "C:\docs\report.pdf" 1
               PdfAnalyticsMcpConsole text "C:\docs\report.pdf" 3 letters
               PdfAnalyticsMcpConsole graphics "C:\docs\report.pdf" 2
+              PdfAnalyticsMcpConsole images "C:\docs\report.pdf" 1
+              PdfAnalyticsMcpConsole images "C:\docs\report.pdf" 1 true
             """);
     }
 }

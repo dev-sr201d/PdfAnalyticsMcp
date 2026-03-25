@@ -199,4 +199,167 @@ public static class TestPdfGenerator
         File.WriteAllBytes(path, bytes);
         return path;
     }
+
+    /// <summary>
+    /// Returns a minimal valid 2x2 red PNG image as a byte array.
+    /// PNG format: signature + IHDR + IDAT (uncompressed via stored block) + IEND.
+    /// </summary>
+    public static byte[] CreateMinimalPng()
+    {
+        using var ms = new MemoryStream();
+        using var bw = new BinaryWriter(ms);
+
+        // PNG signature
+        bw.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
+
+        // IHDR chunk: 2x2 pixels, 8-bit RGB
+        WriteChunk(bw, "IHDR", writer =>
+        {
+            writer.Write(ToBigEndian(2));  // width
+            writer.Write(ToBigEndian(2));  // height
+            writer.Write((byte)8);         // bit depth
+            writer.Write((byte)2);         // color type: RGB
+            writer.Write((byte)0);         // compression
+            writer.Write((byte)0);         // filter
+            writer.Write((byte)0);         // interlace
+        });
+
+        // IDAT chunk: image data compressed with zlib
+        // Each row: filter byte (0=None) + 3 bytes per pixel (RGB) for 2 pixels = 7 bytes per row
+        // 2 rows = 14 bytes raw data
+        byte[] rawImageData =
+        [
+            0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, // Row 1: filter=None, red pixel, red pixel
+            0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00  // Row 2: filter=None, red pixel, red pixel
+        ];
+
+        // Wrap in zlib: 2-byte header + deflate stored block + 4-byte Adler-32
+        byte[] zlibData = ZlibCompress(rawImageData);
+        WriteChunk(bw, "IDAT", writer => writer.Write(zlibData));
+
+        // IEND chunk
+        WriteChunk(bw, "IEND", _ => { });
+
+        return ms.ToArray();
+    }
+
+    private static void WriteChunk(BinaryWriter bw, string type, Action<BinaryWriter> writeData)
+    {
+        using var dataMs = new MemoryStream();
+        using var dataBw = new BinaryWriter(dataMs);
+        writeData(dataBw);
+        dataBw.Flush();
+        byte[] data = dataMs.ToArray();
+        byte[] typeBytes = System.Text.Encoding.ASCII.GetBytes(type);
+
+        bw.Write(ToBigEndian(data.Length));              // length
+        bw.Write(typeBytes);                              // type
+        bw.Write(data);                                   // data
+        uint crc = Crc32(typeBytes, data);
+        bw.Write(ToBigEndian((int)crc));                  // CRC
+    }
+
+    private static byte[] ToBigEndian(int value) =>
+        BitConverter.IsLittleEndian
+            ? [(byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value]
+            : BitConverter.GetBytes(value);
+
+    private static byte[] ZlibCompress(byte[] data)
+    {
+        using var ms = new MemoryStream();
+        // zlib header: CMF=0x78 (deflate, window 32K), FLG=0x01 (no dict, check bits)
+        ms.WriteByte(0x78);
+        ms.WriteByte(0x01);
+
+        // Deflate stored block (BFINAL=1, BTYPE=00)
+        ms.WriteByte(0x01); // BFINAL=1, BTYPE=00 (no compression)
+        int len = data.Length;
+        ms.WriteByte((byte)(len & 0xFF));
+        ms.WriteByte((byte)((len >> 8) & 0xFF));
+        ms.WriteByte((byte)(~len & 0xFF));
+        ms.WriteByte((byte)((~len >> 8) & 0xFF));
+        ms.Write(data, 0, data.Length);
+
+        // Adler-32 checksum
+        uint adler = Adler32(data);
+        ms.WriteByte((byte)(adler >> 24));
+        ms.WriteByte((byte)(adler >> 16));
+        ms.WriteByte((byte)(adler >> 8));
+        ms.WriteByte((byte)adler);
+
+        return ms.ToArray();
+    }
+
+    private static uint Adler32(byte[] data)
+    {
+        uint a = 1, b = 0;
+        foreach (byte d in data)
+        {
+            a = (a + d) % 65521;
+            b = (b + a) % 65521;
+        }
+        return (b << 16) | a;
+    }
+
+    private static uint Crc32(byte[] type, byte[] data)
+    {
+        uint crc = 0xFFFFFFFF;
+        foreach (byte b in type) crc = CrcUpdate(crc, b);
+        foreach (byte b in data) crc = CrcUpdate(crc, b);
+        return crc ^ 0xFFFFFFFF;
+    }
+
+    private static uint CrcUpdate(uint crc, byte b)
+    {
+        crc ^= b;
+        for (int i = 0; i < 8; i++)
+            crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
+        return crc;
+    }
+
+    /// <summary>
+    /// Creates a PDF with a single embedded PNG image at a known position.
+    /// Page 1: 2x2 red PNG placed at (100, 500) with display size 200x150.
+    /// Returns the file path.
+    /// </summary>
+    public static string CreateImageTestPdf()
+    {
+        var path = GetTestDataPath("sample-image.pdf");
+        if (File.Exists(path)) return path;
+
+        var builder = new PdfDocumentBuilder();
+        var page = builder.AddPage(PageSize.Letter);
+
+        byte[] pngBytes = CreateMinimalPng();
+        page.AddPng(pngBytes, new PdfRectangle(100, 500, 300, 650));
+
+        var bytes = builder.Build();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, bytes);
+        return path;
+    }
+
+    /// <summary>
+    /// Creates a PDF with multiple embedded images on page 1.
+    /// Image 1: 2x2 red PNG at (50, 600) display size 100x80.
+    /// Image 2: 2x2 red PNG at (200, 400) display size 150x120.
+    /// Returns the file path.
+    /// </summary>
+    public static string CreateMultiImageTestPdf()
+    {
+        var path = GetTestDataPath("sample-multi-image.pdf");
+        if (File.Exists(path)) return path;
+
+        var builder = new PdfDocumentBuilder();
+        var page = builder.AddPage(PageSize.Letter);
+
+        byte[] pngBytes = CreateMinimalPng();
+        page.AddPng(pngBytes, new PdfRectangle(50, 600, 150, 680));
+        page.AddPng(pngBytes, new PdfRectangle(200, 400, 350, 520));
+
+        var bytes = builder.Build();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, bytes);
+        return path;
+    }
 }
