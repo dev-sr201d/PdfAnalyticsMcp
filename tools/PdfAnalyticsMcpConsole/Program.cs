@@ -26,6 +26,7 @@ public static class Program
             var pageTextService = new PageTextService(validationService);
             var pageGraphicsService = new PageGraphicsService(validationService);
             var pageImagesService = new PageImagesService(validationService, NullLogger<PageImagesService>.Instance);
+            var renderService = new RenderPagePreviewService(validationService, NullLogger<RenderPagePreviewService>.Instance);
 
             var jsonOptions = new JsonSerializerOptions
             {
@@ -47,6 +48,9 @@ public static class Program
 
                 case "images":
                     return RunGetPageImages(args, validationService, pageImagesService, jsonOptions);
+
+                case "render":
+                    return RunRenderPagePreview(args, validationService, renderService, jsonOptions);
 
                 case "debug-ops":
                     return RunDebugOps(args, validationService);
@@ -173,6 +177,47 @@ public static class Program
         return 0;
     }
 
+    private static int RunRenderPagePreview(
+        string[] args,
+        IInputValidationService validationService,
+        IRenderPagePreviewService renderService,
+        JsonSerializerOptions jsonOptions)
+    {
+        if (args.Length < 3)
+        {
+            Console.Error.WriteLine("Usage: PdfAnalyticsMcpConsole render <pdfPath> <page> [dpi]");
+            return 1;
+        }
+
+        var pdfPath = args[1];
+
+        if (!int.TryParse(args[2], out int page))
+        {
+            Console.Error.WriteLine("Error: page must be an integer.");
+            return 1;
+        }
+
+        int dpi = 150;
+        if (args.Length >= 4 && !int.TryParse(args[3], out dpi))
+        {
+            Console.Error.WriteLine("Error: dpi must be an integer.");
+            return 1;
+        }
+
+        validationService.ValidateFilePath(pdfPath);
+        var result = renderService.Render(pdfPath, page, dpi);
+
+        // Write PNG to file next to the source PDF
+        var outputPath = Path.Combine(
+            Path.GetDirectoryName(pdfPath)!,
+            $"{Path.GetFileNameWithoutExtension(pdfPath)}_page{page}_{dpi}dpi.png");
+        File.WriteAllBytes(outputPath, result.PngData);
+
+        Console.WriteLine($"Rendered page {result.Page} at {result.Dpi} DPI: {result.Width}x{result.Height} pixels");
+        Console.WriteLine($"PNG saved to: {outputPath}");
+        return 0;
+    }
+
     private static int RunDebugOps(
         string[] args,
         IInputValidationService validationService)
@@ -274,6 +319,7 @@ public static class Program
               text      <pdfPath> <page> [granularity]     Get page text (granularity: words|letters, default: words)
               graphics  <pdfPath> <page>                   Get classified page graphics (rectangles, lines, paths)
               images    <pdfPath> <page> [includeData]     Get page images (includeData: true|false, default: false)
+              render    <pdfPath> <page> [dpi]             Render page as PNG (dpi: 72-600, default: 150)
 
             Examples:
               PdfAnalyticsMcpConsole info "C:\docs\report.pdf"
@@ -282,6 +328,8 @@ public static class Program
               PdfAnalyticsMcpConsole graphics "C:\docs\report.pdf" 2
               PdfAnalyticsMcpConsole images "C:\docs\report.pdf" 1
               PdfAnalyticsMcpConsole images "C:\docs\report.pdf" 1 true
+              PdfAnalyticsMcpConsole render "C:\docs\report.pdf" 1
+              PdfAnalyticsMcpConsole render "C:\docs\report.pdf" 1 300
             """);
     }
 }

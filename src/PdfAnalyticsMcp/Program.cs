@@ -18,5 +18,6 @@ builder.Services.AddSingleton<IPdfInfoService, PdfInfoService>();
 builder.Services.AddSingleton<IPageTextService, PageTextService>();
 builder.Services.AddSingleton<IPageGraphicsService, PageGraphicsService>();
 builder.Services.AddSingleton<IPageImagesService, PageImagesService>();
+builder.Services.AddSingleton<IRenderPagePreviewService, RenderPagePreviewService>();
 
 await builder.Build().RunAsync();
