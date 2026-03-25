@@ -360,7 +360,7 @@ public class GetPageTextIntegrationTests : IDisposable
         Assert.True(resultElement.GetProperty("isError").GetBoolean());
 
         var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
-        Assert.Contains("Invalid granularity", text);
+        Assert.Contains("Granularity must be 'words' or 'letters'.", text);
     }
 
     #region Helper Methods

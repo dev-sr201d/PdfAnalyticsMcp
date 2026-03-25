@@ -144,7 +144,7 @@ public class RenderPagePreviewServiceTests
     {
         var path = GetTestDataPath("not-a-pdf.txt");
         var ex = Assert.Throws<ArgumentException>(() => _service.Render(path, 1, 150));
-        Assert.Contains("rendered", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("The file could not be opened as a PDF.", ex.Message);
     }
 
     [Fact]

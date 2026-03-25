@@ -11,7 +11,7 @@ public class PageTextService(IInputValidationService validationService) : IPageT
     public PageTextDto Extract(string pdfPath, int page, string granularity)
     {
         if (!ValidGranularities.Contains(granularity, StringComparer.OrdinalIgnoreCase))
-            throw new ArgumentException($"Invalid granularity '{granularity}'. Valid values are: 'words', 'letters'.");
+            throw new ArgumentException("Granularity must be 'words' or 'letters'.");
 
         PdfDocument document;
         try
@@ -29,9 +29,17 @@ public class PageTextService(IInputValidationService validationService) : IPageT
 
             var pdfPage = document.GetPage(page);
 
-            var elements = string.Equals(granularity, "words", StringComparison.OrdinalIgnoreCase)
-                ? ExtractWords(pdfPage)
-                : ExtractLetters(pdfPage);
+            List<TextElementDto> elements;
+            try
+            {
+                elements = string.Equals(granularity, "words", StringComparison.OrdinalIgnoreCase)
+                    ? ExtractWords(pdfPage)
+                    : ExtractLetters(pdfPage);
+            }
+            catch (Exception ex) when (ex is not ArgumentException)
+            {
+                throw new ArgumentException($"An error occurred extracting text from page {page}.");
+            }
 
             return new PageTextDto(
                 page,

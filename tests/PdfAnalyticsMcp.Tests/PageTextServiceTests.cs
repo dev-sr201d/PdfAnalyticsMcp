@@ -145,9 +145,7 @@ public class PageTextServiceTests
         var path = TestPdfGenerator.CreateTextTestPdf();
 
         var ex = Assert.Throws<ArgumentException>(() => _service.Extract(path, 1, "paragraphs"));
-        Assert.Contains("Invalid granularity", ex.Message);
-        Assert.Contains("words", ex.Message);
-        Assert.Contains("letters", ex.Message);
+        Assert.Equal("Granularity must be 'words' or 'letters'.", ex.Message);
     }
 
     [Fact]

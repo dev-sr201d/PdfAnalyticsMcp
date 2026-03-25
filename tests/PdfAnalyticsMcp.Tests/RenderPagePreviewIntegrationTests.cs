@@ -325,7 +325,7 @@ public class RenderPagePreviewIntegrationTests : IDisposable
         Assert.True(resultElement.GetProperty("isError").GetBoolean());
 
         var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
-        Assert.Contains("could not be rendered as a PDF", text);
+        Assert.Contains("could not be opened as a PDF", text);
     }
 
     [Fact]

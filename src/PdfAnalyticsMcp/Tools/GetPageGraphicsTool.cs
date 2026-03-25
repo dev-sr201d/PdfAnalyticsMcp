@@ -17,6 +17,7 @@ public class GetPageGraphicsTool(IInputValidationService validationService, IPag
         try
         {
             validationService.ValidateFilePath(pdfPath);
+            validationService.ValidatePageMinimum(page);
             var result = pageGraphicsService.Extract(pdfPath, page);
             return JsonSerializer.Serialize(result, SerializerConfig.Options);
         }

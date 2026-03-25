@@ -25,35 +25,42 @@ public class PageImagesService(IInputValidationService validationService, ILogge
             var pdfPage = document.GetPage(page);
             var images = new List<ImageElementDto>();
 
-            foreach (var image in pdfPage.GetImages())
+            try
             {
-                try
+                foreach (var image in pdfPage.GetImages())
                 {
-                    var bounds = image.BoundingBox;
-                    double x = FormatUtils.RoundCoordinate(bounds.Left);
-                    double y = FormatUtils.RoundCoordinate(bounds.Bottom);
-                    double w = FormatUtils.RoundCoordinate(bounds.Width);
-                    double h = FormatUtils.RoundCoordinate(bounds.Height);
-
-                    int pixelWidth = image.WidthInSamples;
-                    int pixelHeight = image.HeightInSamples;
-                    int bitsPerComponent = image.BitsPerComponent;
-
-                    string? data = null;
-                    if (includeData)
+                    try
                     {
-                        if (image.TryGetPng(out var pngBytes))
-                        {
-                            data = Convert.ToBase64String(pngBytes);
-                        }
-                    }
+                        var bounds = image.BoundingBox;
+                        double x = FormatUtils.RoundCoordinate(bounds.Left);
+                        double y = FormatUtils.RoundCoordinate(bounds.Bottom);
+                        double w = FormatUtils.RoundCoordinate(bounds.Width);
+                        double h = FormatUtils.RoundCoordinate(bounds.Height);
 
-                    images.Add(new ImageElementDto(x, y, w, h, pixelWidth, pixelHeight, bitsPerComponent, data));
+                        int pixelWidth = image.WidthInSamples;
+                        int pixelHeight = image.HeightInSamples;
+                        int bitsPerComponent = image.BitsPerComponent;
+
+                        string? data = null;
+                        if (includeData)
+                        {
+                            if (image.TryGetPng(out var pngBytes))
+                            {
+                                data = Convert.ToBase64String(pngBytes);
+                            }
+                        }
+
+                        images.Add(new ImageElementDto(x, y, w, h, pixelWidth, pixelHeight, bitsPerComponent, data));
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Skipping image due to extraction error on page {Page}.", page);
+                    }
                 }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Skipping image due to extraction error on page {Page}.", page);
-                }
+            }
+            catch (Exception ex) when (ex is not ArgumentException)
+            {
+                throw new ArgumentException($"An error occurred extracting images from page {page}.");
             }
 
             return new PageImagesDto(

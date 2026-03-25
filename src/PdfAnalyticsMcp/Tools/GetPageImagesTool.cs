@@ -18,6 +18,7 @@ public class GetPageImagesTool(IInputValidationService validationService, IPageI
         try
         {
             validationService.ValidateFilePath(pdfPath);
+            validationService.ValidatePageMinimum(page);
             var result = pageImagesService.Extract(pdfPath, page, includeData);
             return JsonSerializer.Serialize(result, SerializerConfig.Options);
         }

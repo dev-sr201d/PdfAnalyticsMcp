@@ -20,6 +20,8 @@ public class RenderPagePreviewTool(IInputValidationService validationService, IR
         try
         {
             validationService.ValidateFilePath(pdfPath);
+            validationService.ValidatePageMinimum(page);
+            validationService.ValidateDpi(dpi);
             var result = renderService.Render(pdfPath, page, dpi);
 
             var metadata = new RenderPagePreviewMetadataDto(result.Page, result.Dpi, result.Width, result.Height);

@@ -33,56 +33,63 @@ public class PageGraphicsService(IInputValidationService validationService) : IP
             var lines = new List<LineDto>();
             var paths = new List<PathDto>();
 
-            foreach (var path in pdfPage.Paths)
+            try
             {
-                if (path.IsClipping)
-                    continue;
-
-                if (!path.IsFilled && !path.IsStroked)
-                    continue;
-
-                string? fillColor = path.IsFilled ? (ExtractColor(path.FillColor) ?? "#000000") : null;
-                string? strokeColor = path.IsStroked ? (ExtractColor(path.StrokeColor) ?? "#000000") : null;
-                double? strokeWidth = path.IsStroked ? FormatUtils.RoundCoordinate(path.LineWidth) : null;
-                string? dashPattern = path.IsStroked ? FormatDashPattern(path.LineDashPattern) : null;
-
-                if (TryClassifyRectangle(path, out double rx, out double ry, out double rw, out double rh))
+                foreach (var path in pdfPage.Paths)
                 {
-                    rectangles.Add(new RectangleDto(
-                        FormatUtils.RoundCoordinate(rx),
-                        FormatUtils.RoundCoordinate(ry),
-                        FormatUtils.RoundCoordinate(rw),
-                        FormatUtils.RoundCoordinate(rh),
-                        fillColor,
-                        strokeColor,
-                        strokeWidth));
-                }
-                else if (TryClassifyLine(path, out double lx1, out double ly1, out double lx2, out double ly2))
-                {
-                    lines.Add(new LineDto(
-                        FormatUtils.RoundCoordinate(lx1),
-                        FormatUtils.RoundCoordinate(ly1),
-                        FormatUtils.RoundCoordinate(lx2),
-                        FormatUtils.RoundCoordinate(ly2),
-                        strokeColor,
-                        strokeWidth,
-                        dashPattern));
-                }
-                else
-                {
-                    var bounds = path.GetBoundingRectangle();
-                    if (bounds.HasValue)
+                    if (path.IsClipping)
+                        continue;
+
+                    if (!path.IsFilled && !path.IsStroked)
+                        continue;
+
+                    string? fillColor = path.IsFilled ? (ExtractColor(path.FillColor) ?? "#000000") : null;
+                    string? strokeColor = path.IsStroked ? (ExtractColor(path.StrokeColor) ?? "#000000") : null;
+                    double? strokeWidth = path.IsStroked ? FormatUtils.RoundCoordinate(path.LineWidth) : null;
+                    string? dashPattern = path.IsStroked ? FormatDashPattern(path.LineDashPattern) : null;
+
+                    if (TryClassifyRectangle(path, out double rx, out double ry, out double rw, out double rh))
                     {
-                        paths.Add(new PathDto(
-                            FormatUtils.RoundCoordinate(bounds.Value.Left),
-                            FormatUtils.RoundCoordinate(bounds.Value.Bottom),
-                            FormatUtils.RoundCoordinate(bounds.Value.Width),
-                            FormatUtils.RoundCoordinate(bounds.Value.Height),
+                        rectangles.Add(new RectangleDto(
+                            FormatUtils.RoundCoordinate(rx),
+                            FormatUtils.RoundCoordinate(ry),
+                            FormatUtils.RoundCoordinate(rw),
+                            FormatUtils.RoundCoordinate(rh),
                             fillColor,
                             strokeColor,
-                            CountVertices(path)));
+                            strokeWidth));
+                    }
+                    else if (TryClassifyLine(path, out double lx1, out double ly1, out double lx2, out double ly2))
+                    {
+                        lines.Add(new LineDto(
+                            FormatUtils.RoundCoordinate(lx1),
+                            FormatUtils.RoundCoordinate(ly1),
+                            FormatUtils.RoundCoordinate(lx2),
+                            FormatUtils.RoundCoordinate(ly2),
+                            strokeColor,
+                            strokeWidth,
+                            dashPattern));
+                    }
+                    else
+                    {
+                        var bounds = path.GetBoundingRectangle();
+                        if (bounds.HasValue)
+                        {
+                            paths.Add(new PathDto(
+                                FormatUtils.RoundCoordinate(bounds.Value.Left),
+                                FormatUtils.RoundCoordinate(bounds.Value.Bottom),
+                                FormatUtils.RoundCoordinate(bounds.Value.Width),
+                                FormatUtils.RoundCoordinate(bounds.Value.Height),
+                                fillColor,
+                                strokeColor,
+                                CountVertices(path)));
+                        }
                     }
                 }
+            }
+            catch (Exception ex) when (ex is not ArgumentException)
+            {
+                throw new ArgumentException($"An error occurred extracting graphics from page {page}.");
             }
 
             return new PageGraphicsDto(

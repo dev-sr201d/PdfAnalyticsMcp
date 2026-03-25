@@ -18,6 +18,8 @@ public class GetPageTextTool(IInputValidationService validationService, IPageTex
         try
         {
             validationService.ValidateFilePath(pdfPath);
+            validationService.ValidatePageMinimum(page);
+            validationService.ValidateGranularity(granularity);
             var result = pageTextService.Extract(pdfPath, page, granularity);
             return JsonSerializer.Serialize(result, SerializerConfig.Options);
         }

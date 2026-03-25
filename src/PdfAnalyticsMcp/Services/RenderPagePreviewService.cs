@@ -25,7 +25,7 @@ public class RenderPagePreviewService(IInputValidationService validationService,
         }
         catch (Exception ex) when (ex is not ArgumentException)
         {
-            throw new ArgumentException("The file could not be rendered as a PDF.");
+            throw new ArgumentException("The file could not be opened as a PDF.");
         }
 
         using (docReader)
@@ -35,13 +35,23 @@ public class RenderPagePreviewService(IInputValidationService validationService,
 
             using var pageReader = docReader.GetPageReader(page - 1);
 
-            int width = pageReader.GetPageWidth();
-            int height = pageReader.GetPageHeight();
-            byte[] rawBytes = pageReader.GetImage();
+            int width;
+            int height;
+            byte[] rawBytes;
+            try
+            {
+                width = pageReader.GetPageWidth();
+                height = pageReader.GetPageHeight();
+                rawBytes = pageReader.GetImage();
+            }
+            catch (Exception ex) when (ex is not ArgumentException)
+            {
+                throw new ArgumentException($"An error occurred rendering page {page}.");
+            }
 
             if (rawBytes is null || rawBytes.Length == 0)
             {
-                throw new ArgumentException($"Page {page} could not be rendered.");
+                throw new ArgumentException($"An error occurred rendering page {page}.");
             }
 
             logger.LogDebug("Rendered page {Page} at {Dpi} DPI: {Width}x{Height} pixels.", page, dpi, width, height);

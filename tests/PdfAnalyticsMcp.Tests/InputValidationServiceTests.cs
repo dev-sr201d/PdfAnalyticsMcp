@@ -74,4 +74,68 @@ public class InputValidationServiceTests
     {
         _service.ValidatePageNumber(page, pageCount);
     }
+
+    // ValidatePageMinimum tests
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(100)]
+    public void ValidatePageMinimum_ValidPage_DoesNotThrow(int page)
+    {
+        _service.ValidatePageMinimum(page);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(int.MinValue)]
+    public void ValidatePageMinimum_InvalidPage_ThrowsWithExpectedMessage(int page)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => _service.ValidatePageMinimum(page));
+        Assert.Equal("Page number must be 1 or greater.", ex.Message);
+    }
+
+    // ValidateGranularity tests
+
+    [Theory]
+    [InlineData("words")]
+    [InlineData("letters")]
+    [InlineData("Words")]
+    [InlineData("LETTERS")]
+    public void ValidateGranularity_ValidValue_DoesNotThrow(string granularity)
+    {
+        _service.ValidateGranularity(granularity);
+    }
+
+    [Theory]
+    [InlineData("sentences")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void ValidateGranularity_InvalidValue_ThrowsWithExpectedMessage(string? granularity)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => _service.ValidateGranularity(granularity));
+        Assert.Equal("Granularity must be 'words' or 'letters'.", ex.Message);
+    }
+
+    // ValidateDpi tests
+
+    [Theory]
+    [InlineData(72)]
+    [InlineData(150)]
+    [InlineData(600)]
+    public void ValidateDpi_ValidValue_DoesNotThrow(int dpi)
+    {
+        _service.ValidateDpi(dpi);
+    }
+
+    [Theory]
+    [InlineData(71)]
+    [InlineData(601)]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void ValidateDpi_InvalidValue_ThrowsWithExpectedMessage(int dpi)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => _service.ValidateDpi(dpi));
+        Assert.Equal("DPI must be between 72 and 600.", ex.Message);
+    }
 }
