@@ -7,7 +7,7 @@
 
 ## Summary
 
-Provide a tool that extracts and classifies all drawn graphic elements on a single PDF page. This is the **highest complexity feature** in the project. Raw PDF graphics operations are meaningless to an AI agent — the server must replay the graphics state machine, track colors and transforms, and classify the resulting paths into rectangles, lines, and complex shapes. This enables the agent to identify table gridlines, sidebar backgrounds, callout box borders, section dividers, and shaded regions.
+Provide a tool that extracts and classifies all drawn graphic elements on a single PDF page. The service uses PdfPig's `page.Paths` API, which returns pre-processed paths with CTM transforms, fill/stroke colors, line widths, and dash patterns already resolved — including automatic recursion into Form XObjects. The service classifies each path into rectangles, lines, and complex shapes and normalizes colors to hex format. This enables the agent to identify table gridlines, sidebar backgrounds, callout box borders, section dividers, and shaded regions.
 
 ## Inputs
 
@@ -68,27 +68,20 @@ A JSON object containing:
 ## Functional Requirements
 
 1. The tool must operate on a single page per call (REQ-7).
-2. The service layer must implement a **graphics state machine** that replays `page.Operations` from PdfPig, tracking:
-   - Current transformation matrix (CTM) via `cm`, `q`/`Q` (save/restore) operations
-   - Fill color via `g`/`rg`/`k` (grayscale/RGB/CMYK) operations
-   - Stroke color via `G`/`RG`/`K` operations
-   - Line width via `w` operation
-   - Dash pattern via `d` operation
-   - Path construction via `m` (moveto), `l` (lineto), `re` (rectangle) operations
-   - Path painting via `S`/`s` (stroke), `f`/`F` (fill), `B`/`b` (fill+stroke), `n` (no-op) operations
-3. Extracted paths must be **classified server-side** into rectangles, lines, and complex paths (REQ-6). Raw operations must never be returned.
-4. A path is classified as a **rectangle** if it consists of a single `re` operation or four line segments forming a closed axis-aligned rectangle.
-5. A path is classified as a **line** if it consists of a single `m` followed by a single `l` (two-point path).
-6. All other paths are classified as **complex paths** with a bounding box and vertex count.
-7. Colors must be normalized to `"#RRGGBB"` hex format regardless of the PDF color space (grayscale, RGB, CMYK).
-8. All coordinates must be transformed through the CTM to produce page-space coordinates.
-9. Coordinates must be rounded to 1 decimal place.
+2. The service layer must use PdfPig's **`page.Paths`** API (`IReadOnlyList<PdfPath>`) to read pre-processed paths. PdfPig's internal `ContentStreamProcessor` handles graphics state tracking (CTM, colors, line styles) and automatically recurses into Form XObjects — no custom state machine is needed.
+3. Clipping paths (`IsClipping == true`) and invisible paths (neither filled nor stroked) must be filtered out.
+4. Extracted paths must be **classified server-side** into rectangles, lines, and complex paths (REQ-6). Raw operations must never be returned.
+5. A path is classified as a **rectangle** if it has exactly one subpath with `Move` + 3 `Line` + `Close` (or `Move` + 4 `Line` with coincident endpoints) forming a closed axis-aligned shape with no curves.
+6. A path is classified as a **line** if it has exactly one subpath with 1 `Move` + 1 `Line` (two-point path, no close, no curves).
+7. All other paths are classified as **complex paths** with a bounding box and vertex count.
+8. Colors must be extracted from `PdfPath.FillColor` and `PdfPath.StrokeColor` (type `IColor`) via `ToRGBValues()` and normalized to `"#RRGGBB"` hex format. `PatternColor` types must be handled gracefully (treated as null).
+9. Coordinates are already in page space (CTM pre-applied by PdfPig) and must be rounded to 1 decimal place.
 
 ## Dependencies
 
 - Feature 001 (MCP Server Host) must be complete.
 - `UglyToad.PdfPig` NuGet package.
-- This feature requires the most significant service-layer implementation (graphics state machine in `Services/`).
+- The service classifies PdfPig's pre-processed `PdfPath` objects.
 
 > **Note:** This feature reuses the shared infrastructure established by Feature 002: the centralized serialization options, coordinate rounding utility, color formatting utility, and input validation service.
 
@@ -98,7 +91,8 @@ A JSON object containing:
 - [ ] Calling `GetPageGraphics` on a page with a colored sidebar returns a filled rectangle with the correct fill color and bounds.
 - [ ] Calling `GetPageGraphics` on a page with bordered boxes returns stroked rectangles with correct stroke color and width.
 - [ ] Complex paths (curves, irregular shapes) are returned with bounding boxes and vertex counts, not raw operations.
-- [ ] Colors from different PDF color spaces (grayscale, RGB, CMYK) are all normalized to `"#RRGGBB"`.
-- [ ] The graphics state machine correctly handles nested `q`/`Q` (save/restore) operations.
-- [ ] Coordinates reflect the cumulative transformation matrix.
+- [ ] Colors from different PDF color spaces (grayscale, RGB, CMYK) are all normalized to `"#RRGGBB"` via `IColor.ToRGBValues()`.
+- [ ] Graphics inside Form XObjects are included (handled automatically by PdfPig's `page.Paths`).
+- [ ] Clipping paths and invisible paths are excluded from the output.
+- [ ] Coordinates are correctly rounded (CTM transforms are pre-applied by PdfPig).
 - [ ] The response uses compact JSON with camelCase, null omission, and 1 decimal coordinate rounding.

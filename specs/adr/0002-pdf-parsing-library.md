@@ -13,7 +13,7 @@ The MCP server needs a library to extract rich structured data from PDF files, i
 - Graphics paths: filled/stroked rectangles, lines, complex paths with color and stroke properties (REQ-3)
 - Embedded images: bounding boxes, pixel dimensions, raw image data (REQ-4)
 
-The library must work in pure .NET without external process dependencies, and must provide access to low-level PDF content stream operations for graphics state machine processing.
+The library must work in pure .NET without external process dependencies, and must provide access to pre-processed graphics paths with color, stroke, and transformation data.
 
 ## Decision
 
@@ -40,7 +40,7 @@ Use **PdfPig** (`UglyToad.PdfPig` NuGet package) as the PDF parsing library.
 
 - PdfPig provides `page.Letters` with position (x, y, width, height), font (name, size, bold, italic), and color — directly supporting REQ-2 at both letter and word granularity via `page.GetWords()`.
 - PdfPig provides `page.GetImages()` with `IPdfImage` exposing bounds and `TryGetPng()` for image data extraction (REQ-4).
-- PdfPig provides `page.Operations` (raw graphics state operations) and `page.Paths` for graphics extraction (REQ-3). However, PdfPig does **not** pre-classify shapes — implementing REQ-3 requires building a graphics state machine that tracks the current transformation matrix, color state, and line style while replaying operations. This is the highest-complexity extraction task in the project.
+- PdfPig provides `page.Paths` (`IReadOnlyList<PdfPath>`) for graphics extraction (REQ-3). Each `PdfPath` includes fill/stroke colors (`IColor`), line width, dash pattern, and subpath commands (`Move`, `Line`, `CubicBezierCurve`, `Close`, etc.) with coordinates already transformed through the CTM. PdfPig's internal `ContentStreamProcessor` handles graphics state tracking and automatically recurses into Form XObjects — graphics wrapped inside Form XObjects are included in `page.Paths` without custom handling. However, PdfPig does **not** pre-classify shapes — implementing REQ-3 requires classifying each `PdfPath` as a rectangle, line, or complex path based on its subpath commands, and converting colors via `IColor.ToRGBValues()`.
 - PdfPig is MIT-licensed with no commercial restrictions.
 - PdfPig is a pure C# library with no native dependencies, simplifying deployment.
 - PdfPig exposes `document.NumberOfPages`, page dimensions, and document metadata for REQ-1.

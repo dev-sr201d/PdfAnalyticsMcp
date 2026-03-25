@@ -176,12 +176,13 @@ Page page = document.GetPage(pageNumber); // 1-based
 - **Use `Letter.PointSize`, not `Letter.FontSize`, for font size.** `FontSize` returns the raw value from the PDF content stream, which is often `1.0` for embedded/subset fonts (the font matrix handles scaling). `PointSize` returns the actual rendered size in points (e.g., 9pt, 10pt). For Standard14 fonts (Helvetica, Times, Courier, etc.) both properties return the same value, but for real-world PDFs with embedded fonts — which are the common case — `FontSize` is unreliable.
 - For complex layouts, consider `NearestNeighbourWordExtractor.Instance` passed to `page.GetWords()` — it handles irregular spacing better than the default extractor.
 
-### Graphics Extraction (High Complexity)
+### Graphics Extraction
 
-- PdfPig provides `page.Operations` (raw content stream operations) and `page.Paths` (partial path data).
-- **Raw operations require a graphics state machine** — you must track the current transformation matrix (CTM), fill color, stroke color, line width, dash pattern, and clipping path while replaying operations.
-- Classify extracted paths into **rectangles**, **lines**, and **complex paths** server-side. Return classified shapes, never raw operations.
-- Key operation types to handle: `m` (moveto), `l` (lineto), `re` (rectangle), `S`/`s` (stroke), `f`/`F` (fill), `B` (fill+stroke), `q`/`Q` (save/restore state), `cm` (transform), `g`/`G`/`rg`/`RG`/`k`/`K` (color), `w` (line width), `d` (dash pattern).
+- Use **`page.Paths`** (`IReadOnlyList<PdfPath>`) to access pre-processed path data. PdfPig's internal `ContentStreamProcessor` handles CTM transforms, graphics state tracking (colors, line widths, dash patterns), and Form XObject recursion automatically.
+- Each `PdfPath` exposes `IsFilled`, `IsStroked`, `IsClipping`, `FillColor`/`StrokeColor` (`IColor`), `LineWidth`, `LineDashPattern`, and a list of `PdfSubpath` objects containing `Move`, `Line`, `CubicBezierCurve`, `QuadraticBezierCurve`, and `Close` commands with `PdfPoint` coordinates already in page space.
+- Convert colors via `IColor.ToRGBValues()` → `(double r, double g, double b)` in 0.0–1.0 range. Handle `PatternColor` gracefully (it throws `InvalidOperationException` from `ToRGBValues()`).
+- Filter out clipping paths (`IsClipping == true`) and invisible paths (neither filled nor stroked).
+- Classify each remaining `PdfPath` into **rectangles**, **lines**, and **complex paths** server-side. Return classified shapes, never raw operations.
 
 ### Image Extraction
 
@@ -288,7 +289,7 @@ public record WordDto(
 ### What to Test
 
 - Correct extraction of text with font/color metadata from a known PDF.
-- Graphics state machine correctly classifies rectangles, lines from raw operations.
+- Path classification correctly identifies rectangles, lines, and complex paths from `page.Paths`.
 - Page number validation (0, negative, beyond page count).
 - Invalid/missing file path handling.
 - Response size stays within expected bounds for representative pages.
