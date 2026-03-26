@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — amended 2026-03-25
+Accepted — amended 2026-03-26
 
 ## Context
 
@@ -29,14 +29,16 @@ Use **System.Text.Json** (built into .NET) to serialize tool responses as JSON. 
 
 ### File-based output for large responses
 
-For tools where a typical page can produce responses exceeding the ≤ 30 KB inline target (e.g., dense pages with `GetPageText`), an optional `outputFile` parameter allows callers to redirect the full JSON result to a file on disk. When `outputFile` is provided:
+For tools where a typical page can produce responses exceeding the ≤ 30 KB inline target (e.g., dense pages with `GetPageText`), an optional `outputFile` parameter allows callers to redirect the element data to a CSV file on disk. When `outputFile` is provided:
 
-- The complete JSON payload is written to the specified absolute path using the same serialization options (camelCase, compact, nulls omitted).
-- The tool returns a compact **summary DTO** inline (< 1 KB) containing page metadata, element count, the output file path, and the file size in bytes.
+- The tool returns a compact **summary DTO** inline (< 1 KB) containing page metadata (page number, width, height), element count, the output file path, and the file size in bytes. The envelope data lives in the summary — it is not duplicated in the file.
+- The file contains only the flat element data in CSV format — one header row followed by one row per element. The CSV columns match the element DTO fields (e.g., `text,x,y,w,h,font,size,color,bold,italic`). Optional fields (`color`, `bold`, `italic`) are empty when not applicable.
 - The caller can then read the file independently, outside of the MCP response payload.
 - The `outputFile` path is validated: must be absolute, must not contain path traversal sequences (`..`), and the parent directory must exist. If the file already exists it is overwritten.
 
-This approach preserves backward compatibility — when `outputFile` is omitted, the full data is returned inline as before. Currently implemented for `GetPageText` (FRD-003). The pattern can be adopted by other tools (e.g., `GetPageGraphics`, `GetPageImages`) if their payloads also risk exceeding the inline size target.
+CSV eliminates the ~40 bytes of repeated JSON key names per element, reducing token consumption by ~50% compared to JSON for the same data. For a 300-word page this saves ~12 KB of tokens; for dense pages the savings are proportionally larger. The envelope data (`page`, `width`, `height`) is already present in the inline summary, so it is not repeated in the CSV file. LLMs are well-trained on CSV and a header row provides sufficient schema clarity.
+
+When `outputFile` is omitted, the full JSON data is returned inline as before. Currently implemented for `GetPageText` (FRD-003). The pattern can be adopted by other tools (e.g., `GetPageGraphics`, `GetPageImages`) if their payloads also risk exceeding the inline size target.
 
 ## Alternatives Considered
 
@@ -49,6 +51,8 @@ This approach preserves backward compatibility — when `outputFile` is omitted,
 
 - **Pros:** Could achieve even smaller payloads than JSON.
 - **Cons:** Requires custom parsing logic; not self-describing; agents may struggle with non-standard formats; harder to debug; loses interoperability.
+
+> **Revisited (2026-03-26):** Standard CSV (with a header row) is sufficiently self-describing for LLMs and does not require custom parsing. File-based output always uses CSV for maximum token efficiency. The inline MCP response remains JSON.
 
 ### MessagePack or Protocol Buffers
 
@@ -71,4 +75,5 @@ File-based output was chosen because it keeps each tool call self-contained (one
 - Coordinate rounding from ~15 significant digits to 1 decimal place significantly reduces JSON string length for dense pages with thousands of positioned elements.
 - The `camelCase` convention matches typical JSON conventions and is immediately familiar to LLMs trained on web data.
 - Omitting nulls and using compact color representation (`"#FF0000"` vs `{"r":255,"g":0,"b":0}`) reduces typical per-element overhead.
-- File-based output (`outputFile`) decouples response size from MCP payload limits. Dense pages that exceed ≤ 30 KB inline can write arbitrarily large JSON to disk while keeping the inline summary under 1 KB. This uses the same `SerializerConfig.Options` instance, so formatting is consistent whether output is inline or file-based.
+- File-based output (`outputFile`) decouples response size from MCP payload limits. Dense pages that exceed ≤ 30 KB inline can write to disk while keeping the inline summary under 1 KB.
+- File output uses CSV format, reducing token consumption by ~50% compared to JSON for uniform tabular data (text elements), because repeated key names are replaced by a single header row. The trade-off is that optional/nullable fields appear as empty columns rather than being omitted entirely.

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using PdfAnalyticsMcp.Models;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
@@ -68,8 +67,7 @@ public class PageTextService(IInputValidationService validationService) : IPageT
 
         var fullResult = Extract(pdfPath, page, granularity);
 
-        var json = JsonSerializer.Serialize(fullResult, SerializerConfig.Options);
-        File.WriteAllText(outputFile, json);
+        WriteCsv(outputFile, fullResult.Elements);
 
         var fileInfo = new FileInfo(outputFile);
 
@@ -80,6 +78,45 @@ public class PageTextService(IInputValidationService validationService) : IPageT
             fullResult.Elements.Count,
             fileInfo.FullName,
             fileInfo.Length);
+    }
+
+    private static void WriteCsv(string filePath, IReadOnlyList<TextElementDto> elements)
+    {
+        using var writer = new StreamWriter(filePath, append: false, encoding: System.Text.Encoding.UTF8);
+        writer.WriteLine("text,x,y,w,h,font,size,color,bold,italic");
+
+        foreach (var e in elements)
+        {
+            writer.Write(CsvEscape(e.Text));
+            writer.Write(',');
+            writer.Write(e.X);
+            writer.Write(',');
+            writer.Write(e.Y);
+            writer.Write(',');
+            writer.Write(e.W);
+            writer.Write(',');
+            writer.Write(e.H);
+            writer.Write(',');
+            writer.Write(CsvEscape(e.Font));
+            writer.Write(',');
+            writer.Write(e.Size);
+            writer.Write(',');
+            writer.Write(e.Color ?? "");
+            writer.Write(',');
+            writer.Write(e.Bold == true ? "true" : "");
+            writer.Write(',');
+            writer.Write(e.Italic == true ? "true" : "");
+            writer.WriteLine();
+        }
+    }
+
+    private static string CsvEscape(string value)
+    {
+        if (value.Contains('"') || value.Contains(',') || value.Contains('\n') || value.Contains('\r'))
+        {
+            return '"' + value.Replace("\"", "\"\"") + '"';
+        }
+        return value;
     }
 
     private static List<TextElementDto> ExtractWords(Page pdfPage)

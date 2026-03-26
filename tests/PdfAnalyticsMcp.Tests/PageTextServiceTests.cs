@@ -261,7 +261,7 @@ public class PageTextServiceTests
     public void ExtractToFile_WritesToDiskAndReturnsSummary()
     {
         var pdfPath = TestPdfGenerator.CreateTextTestPdf();
-        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.csv");
         try
         {
             var summary = _service.ExtractToFile(pdfPath, 1, "words", outputFile);
@@ -281,22 +281,70 @@ public class PageTextServiceTests
     }
 
     [Fact]
-    public void ExtractToFile_FileContainsValidJsonMatchingFullResponse()
+    public void ExtractToFile_FileContainsValidCsvWithHeaderAndCorrectRowCount()
     {
         var pdfPath = TestPdfGenerator.CreateTextTestPdf();
-        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.csv");
         try
         {
             var summary = _service.ExtractToFile(pdfPath, 1, "words", outputFile);
-            var fileContent = File.ReadAllText(outputFile);
-            var doc = JsonDocument.Parse(fileContent);
-            var root = doc.RootElement;
+            var lines = File.ReadAllLines(outputFile);
 
-            Assert.True(root.TryGetProperty("page", out _));
-            Assert.True(root.TryGetProperty("width", out _));
-            Assert.True(root.TryGetProperty("height", out _));
-            Assert.True(root.TryGetProperty("elements", out var elements));
-            Assert.Equal(summary.ElementCount, elements.GetArrayLength());
+            // First line is the header
+            Assert.Equal("text,x,y,w,h,font,size,color,bold,italic", lines[0]);
+            // Data rows = elementCount
+            Assert.Equal(summary.ElementCount, lines.Length - 1);
+        }
+        finally
+        {
+            if (File.Exists(outputFile)) File.Delete(outputFile);
+        }
+    }
+
+    [Fact]
+    public void ExtractToFile_CsvEscaping_CommasAndQuotesEscapedPerRfc4180()
+    {
+        var pdfPath = TestPdfGenerator.CreateTextTestPdf();
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.csv");
+        try
+        {
+            _service.ExtractToFile(pdfPath, 1, "words", outputFile);
+            var content = File.ReadAllText(outputFile);
+
+            // Text with a comma should be quoted: "Hello, World" becomes """Hello, World""" or similar
+            // The word "Hello," should be CSV-escaped since it contains a comma
+            Assert.Contains("\"Hello,", content);
+
+            // Text with quotes: Say "Hi" should be escaped as "Say ""Hi"""
+            Assert.Contains("\"\"", content);
+        }
+        finally
+        {
+            if (File.Exists(outputFile)) File.Delete(outputFile);
+        }
+    }
+
+    [Fact]
+    public void ExtractToFile_BooleanFields_TrueWhenSetEmptyOtherwise()
+    {
+        var pdfPath = TestPdfGenerator.CreateTextTestPdf();
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.csv");
+        try
+        {
+            _service.ExtractToFile(pdfPath, 1, "words", outputFile);
+            var lines = File.ReadAllLines(outputFile);
+
+            // Find a bold word line (Bold Text) - should have "true" in bold column (index 8)
+            var boldLine = lines.Skip(1).First(l => l.StartsWith("Bold,"));
+            var boldFields = ParseCsvLine(boldLine);
+            Assert.Equal("true", boldFields[8]); // bold
+            Assert.Equal("", boldFields[9]); // italic
+
+            // Find a regular word (Hello) - bold and italic should be empty
+            var helloLine = lines.Skip(1).First(l => l.StartsWith("Hello,"));
+            var helloFields = ParseCsvLine(helloLine);
+            Assert.Equal("", helloFields[8]); // bold
+            Assert.Equal("", helloFields[9]); // italic
         }
         finally
         {
@@ -308,7 +356,7 @@ public class PageTextServiceTests
     public void ExtractToFile_OverwritesExistingFile()
     {
         var pdfPath = TestPdfGenerator.CreateTextTestPdf();
-        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.csv");
         try
         {
             File.WriteAllText(outputFile, "old content");
@@ -316,6 +364,7 @@ public class PageTextServiceTests
 
             var fileContent = File.ReadAllText(outputFile);
             Assert.DoesNotContain("old content", fileContent);
+            Assert.StartsWith("text,x,y,w,h,font,size,color,bold,italic", fileContent);
             Assert.True(summary.SizeBytes > 0);
         }
         finally
@@ -363,6 +412,65 @@ public class PageTextServiceTests
 
         Assert.True(result.Elements.Count > 0);
         Assert.Equal(1, result.Page);
+    }
+
+    #endregion
+
+    #region Helpers
+
+    /// <summary>
+    /// Parses a single CSV line respecting RFC 4180 quoting rules.
+    /// </summary>
+    private static string[] ParseCsvLine(string line)
+    {
+        List<string> fields = [];
+        int i = 0;
+        while (i <= line.Length)
+        {
+            if (i == line.Length)
+            {
+                fields.Add("");
+                break;
+            }
+            if (line[i] == '"')
+            {
+                // Quoted field
+                var sb = new System.Text.StringBuilder();
+                i++; // skip opening quote
+                while (i < line.Length)
+                {
+                    if (line[i] == '"')
+                    {
+                        if (i + 1 < line.Length && line[i + 1] == '"')
+                        {
+                            sb.Append('"');
+                            i += 2;
+                        }
+                        else
+                        {
+                            i++; // skip closing quote
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        sb.Append(line[i]);
+                        i++;
+                    }
+                }
+                fields.Add(sb.ToString());
+                if (i < line.Length && line[i] == ',') i++; // skip comma
+            }
+            else
+            {
+                // Unquoted field
+                int start = i;
+                while (i < line.Length && line[i] != ',') i++;
+                fields.Add(line[start..i]);
+                if (i < line.Length) i++; // skip comma
+            }
+        }
+        return [.. fields];
     }
 
     #endregion

@@ -53,6 +53,13 @@ public static class TestPdfGenerator
         var helveticaBoldOblique = builder.AddStandard14Font(Standard14Font.HelveticaBoldOblique);
         page.AddText("BoldItalic Text", 12, new PdfPoint(72, 640), helveticaBoldOblique);
 
+        // Text containing a comma (for CSV escaping tests)
+        page.ResetColor();
+        page.AddText("Hello, World", 12, new PdfPoint(72, 620), helvetica);
+
+        // Text containing a double quote (for CSV escaping tests)
+        page.AddText("Say \"Hi\"", 12, new PdfPoint(72, 600), helvetica);
+
         var bytes = builder.Build();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllBytes(path, bytes);

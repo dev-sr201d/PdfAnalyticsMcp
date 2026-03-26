@@ -72,8 +72,14 @@ public class McpServerIntegrationTests : IDisposable
     [Fact]
     public async Task Server_WritesLogOutput_ToStderr()
     {
-        // Wait for server to produce some log output on stderr
-        await Task.Delay(1000);
+        // Poll for stderr output with a generous timeout instead of a fixed delay
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (!string.IsNullOrWhiteSpace(_stderrOutput.ToString()))
+                break;
+            await Task.Delay(200);
+        }
 
         var stderr = _stderrOutput.ToString();
         Assert.False(string.IsNullOrWhiteSpace(stderr), "Server should write log output to stderr.");

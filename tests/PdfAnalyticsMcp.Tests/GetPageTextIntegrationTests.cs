@@ -371,7 +371,7 @@ public class GetPageTextIntegrationTests : IDisposable
 
         TestPdfGenerator.CreateTextTestPdf();
         var pdfPath = TestPdfGenerator.GetTestDataPath("sample-text.pdf");
-        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.csv");
 
         try
         {
@@ -392,12 +392,20 @@ public class GetPageTextIntegrationTests : IDisposable
             Assert.True(root.TryGetProperty("sizeBytes", out var sizeBytesProp));
             Assert.True(sizeBytesProp.GetInt64() > 0);
 
-            // Verify file was written with full data
+            // Verify file was written as CSV with header and data rows
             Assert.True(File.Exists(outputFile));
-            var fileContent = File.ReadAllText(outputFile);
-            var fileDoc = JsonDocument.Parse(fileContent);
-            Assert.True(fileDoc.RootElement.TryGetProperty("elements", out var elements));
-            Assert.Equal(elementCount.GetInt32(), elements.GetArrayLength());
+            var lines = File.ReadAllLines(outputFile);
+            Assert.Equal("text,x,y,w,h,font,size,color,bold,italic", lines[0]);
+            Assert.Equal(elementCount.GetInt32(), lines.Length - 1);
+
+            // Verify bold elements have "true" in bold column, non-bold have empty
+            var boldLine = lines.Skip(1).FirstOrDefault(l => l.StartsWith("Bold,"));
+            Assert.NotNull(boldLine);
+            Assert.Contains(",true,", boldLine); // bold column
+
+            var helloLine = lines.Skip(1).First(l => l.StartsWith("Hello,"));
+            // Hello is regular font — bold and italic columns should be empty (line ends with ,,)
+            Assert.EndsWith(",,", helloLine);
         }
         finally
         {
@@ -412,7 +420,7 @@ public class GetPageTextIntegrationTests : IDisposable
 
         TestPdfGenerator.CreateDenseTextTestPdf();
         var pdfPath = TestPdfGenerator.GetTestDataPath("sample-text-dense.pdf");
-        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.csv");
 
         try
         {
@@ -423,9 +431,13 @@ public class GetPageTextIntegrationTests : IDisposable
             var summarySize = Encoding.UTF8.GetByteCount(resultText);
             Assert.True(summarySize < 1024, $"Summary response should be < 1 KB but was {summarySize} bytes.");
 
-            // The file should contain > 30 KB of data
-            var fileSize = new FileInfo(outputFile).Length;
-            Assert.True(fileSize > 30 * 1024, $"Dense page file should be > 30 KB but was {fileSize} bytes.");
+            // Verify CSV is smaller than equivalent JSON would be
+            var csvSize = new FileInfo(outputFile).Length;
+            // Get inline JSON size for comparison
+            var inlineResponse = await CallToolAsync("get_page_text", new { pdfPath, page = 1, granularity = "words" });
+            var inlineText = GetToolResultContent(inlineResponse!);
+            var jsonSize = Encoding.UTF8.GetByteCount(inlineText);
+            Assert.True(csvSize < jsonSize, $"CSV size ({csvSize}) should be smaller than JSON size ({jsonSize}).");
         }
         finally
         {
@@ -440,7 +452,7 @@ public class GetPageTextIntegrationTests : IDisposable
 
         TestPdfGenerator.CreateTextTestPdf();
         var pdfPath = TestPdfGenerator.GetTestDataPath("sample-text.pdf");
-        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
+        var outputFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.csv");
 
         try
         {
@@ -451,8 +463,7 @@ public class GetPageTextIntegrationTests : IDisposable
 
             var fileContent = File.ReadAllText(outputFile);
             Assert.DoesNotContain("old content", fileContent);
-            var fileDoc = JsonDocument.Parse(fileContent);
-            Assert.True(fileDoc.RootElement.TryGetProperty("elements", out _));
+            Assert.StartsWith("text,x,y,w,h,font,size,color,bold,italic", fileContent);
         }
         finally
         {

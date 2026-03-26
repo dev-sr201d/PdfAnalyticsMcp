@@ -16,7 +16,7 @@ Provide a tool that extracts text content from a single PDF page with full posit
 | `pdfPath` | string | Yes | — | Absolute path to the PDF file |
 | `page` | int | Yes | — | 1-based page number |
 | `granularity` | string | No | `"words"` | Level of detail: `"words"` or `"letters"` |
-| `outputFile` | string | No | — | If provided, write the full JSON result to this file path and return a compact summary instead of the full data |
+| `outputFile` | string | No | — | If provided, write element data as CSV to this file path and return a compact summary instead of the full data |
 
 ## Outputs
 
@@ -33,7 +33,7 @@ A JSON object containing:
 
 ### When `outputFile` is provided
 
-The full JSON result (same structure as above) is written to the specified file path. The tool returns a compact summary instead:
+The element data is written to the specified file path as CSV. The tool returns a compact summary instead:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -41,8 +41,12 @@ The full JSON result (same structure as above) is written to the specified file 
 | `width` | double | Page width in PDF points |
 | `height` | double | Page height in PDF points |
 | `elementCount` | int | Number of text elements extracted |
-| `outputFile` | string | Absolute path where the full data was written |
+| `outputFile` | string | Absolute path where the data was written |
 | `sizeBytes` | long | Size of the written file in bytes |
+
+The CSV file contains only the flat element data — no envelope. The first row is a header: `text,x,y,w,h,font,size,color,bold,italic`. Each subsequent row is one element. Optional fields (`color`, `bold`, `italic`) are empty when not applicable. Boolean fields use `true` when set and are empty otherwise. The envelope data (`page`, `width`, `height`) is available in the inline summary and is not repeated in the CSV.
+
+CSV reduces token consumption by ~50% compared to JSON for the same data, because repeated JSON key names are eliminated. This is the preferred format when the agent will read the file back into its context window.
 
 ### Word element fields (granularity = `"words"`):
 
@@ -55,9 +59,9 @@ The full JSON result (same structure as above) is written to the specified file 
 | `h` | double | Height of bounding box |
 | `font` | string | Font name |
 | `size` | double | Font size in points |
-| `color` | string? | RGB fill color as `"#RRGGBB"` (omitted if black/default) |
-| `bold` | bool? | True if bold (omitted if false) |
-| `italic` | bool? | True if italic (omitted if false) |
+| `color` | string? | RGB fill color as `"#RRGGBB"` (null/omitted in JSON if black/default; empty in CSV) |
+| `bold` | bool? | True if bold (null/omitted in JSON if false; empty in CSV) |
+| `italic` | bool? | True if italic (null/omitted in JSON if false; empty in CSV) |
 
 ### Letter element fields (granularity = `"letters"`):
 
@@ -74,9 +78,10 @@ Same fields as word elements, but each element represents a single character. Th
 7. Color must be serialized as `"#RRGGBB"` hex strings. Color values are available on `Letter.Color` via `.ToRGBValues()`. Default black (`#000000`) should be omitted to reduce payload size.
 8. All coordinates must be rounded to 1 decimal place.
 9. The response must be serialized as compact JSON (no indentation, camelCase, nulls omitted).
-10. When `outputFile` is provided, the tool must write the complete JSON result to the specified file path and return a compact summary object (page dimensions, element count, file path, file size). The caller can then read the file independently.
+10. When `outputFile` is provided, the tool must write the element data as CSV to the specified file path and return a compact summary object (page dimensions, element count, file path, file size). The caller can then read the file independently.
 11. The `outputFile` path must be validated: the directory must exist, the path must be absolute, and path traversal sequences must be rejected. If the file already exists, it is overwritten.
 12. When `outputFile` is not provided, behavior is unchanged — the full JSON is returned inline as the tool result.
+13. The CSV file must contain a header row (`text,x,y,w,h,font,size,color,bold,italic`) followed by one data row per element. Fields containing commas, quotes, or newlines must be properly escaped per RFC 4180. Optional fields are empty (not omitted). Boolean fields are `true` when set, empty otherwise.
 
 ## Dependencies
 
@@ -96,7 +101,11 @@ Same fields as word elements, but each element represents a single character. Th
 - [ ] Coordinates are rounded to 1 decimal place.
 - [ ] A typical page (~300 words) at word granularity produces a response ≤ 30 KB.
 - [ ] The tool only accesses the requested page, not the full document.
-- [ ] When `outputFile` is provided, the full JSON is written to that path and the tool returns a summary containing page dimensions, element count, file path, and file size.
+- [ ] When `outputFile` is provided, element data is written as CSV to that path and the tool returns a summary containing page dimensions, element count, file path, and file size.
 - [ ] When `outputFile` is provided, the inline response is small (< 1 KB) regardless of page density.
 - [ ] When `outputFile` is omitted, behavior is identical to the current implementation (full data returned inline).
 - [ ] The `outputFile` parameter rejects relative paths and path traversal sequences.
+- [ ] The CSV file contains a header row and comma-separated element data with no JSON envelope.
+- [ ] The CSV file is ~50% smaller than equivalent JSON for the same data.
+- [ ] CSV fields containing commas, quotes, or newlines are properly escaped per RFC 4180.
+- [ ] Boolean fields in CSV use `true` when set and are empty otherwise.

@@ -257,7 +257,7 @@ public static class SerializerConfig
 - **Hex color strings** — use `"#RRGGBB"` format (e.g., `"#FF0000"`), not separate R/G/B properties.
 - **Base64 image data** — only include when explicitly requested via a parameter.
 - **Source generators** — consider `[JsonSerializable(typeof(MyDto))]` for AOT compatibility and reduced allocations on hot paths.
-- **File-based output** — when a tool supports an `outputFile` parameter, serialize the full response DTO to disk using the same `SerializerConfig.Options`, then return a compact summary DTO inline (< 1 KB). Validate the output path: must be absolute, must not contain `..`, and the parent directory must exist. See ADR-0005.
+- **File-based output** — when a tool supports an `outputFile` parameter, write the element data as CSV to disk (header row + data rows, ~50% fewer tokens than JSON) and return a compact summary DTO inline (< 1 KB). The summary contains the envelope data (page, width, height) so it is not repeated in the CSV. Validate the output path: must be absolute, must not contain `..`, and the parent directory must exist. See ADR-0005.
 
 ### DTO Design
 

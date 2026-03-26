@@ -39,7 +39,7 @@ Define response DTOs in the `Models/` directory as immutable `record` types:
    - `width` (double) — Page width in PDF points, rounded to 1 decimal place
    - `height` (double) — Page height in PDF points, rounded to 1 decimal place
    - `elementCount` (int) — Number of text elements extracted
-   - `outputFile` (string) — Absolute path where the full data was written
+   - `outputFile` (string) — Absolute path where the CSV data was written
    - `sizeBytes` (long) — Size of the written file in bytes
 
 ### Service Interface
@@ -47,7 +47,7 @@ Define response DTOs in the `Models/` directory as immutable `record` types:
 Define a service interface in `Services/` with **two methods** (avoiding polymorphic return types and keeping each method's contract type-safe):
 
 1. **`Extract`** — Accepts a file path (string), a 1-based page number (int), and a granularity value (string). Returns the page text response DTO (full data inline). This is the existing method signature — it remains unchanged for backward compatibility.
-2. **`ExtractToFile`** — Accepts a file path (string), a 1-based page number (int), a granularity value (string), and an output file path (string). Returns the page text summary DTO. Internally calls `Extract` to get the full data, serializes it to the file, then builds and returns the summary.
+2. **`ExtractToFile`** — Accepts a file path (string), a 1-based page number (int), a granularity value (string), and an output file path (string). Returns the page text summary DTO. Internally calls `Extract` to get the full data, writes the element data as CSV to the file, then builds and returns the summary.
 
 Both methods use `IInputValidationService` for page number validation (file path validation is the tool layer's responsibility, matching the established pattern in `GetPdfInfoTool`).
 
@@ -73,8 +73,7 @@ The service must:
     - Reject paths containing path traversal sequences (`..`). Throw `ArgumentException`.
     - Verify the parent directory exists. Throw `ArgumentException` if it does not.
     - Call the existing `Extract` method internally to get the full page text response DTO.
-    - Serialize the full DTO to compact JSON using `SerializerConfig.Options`.
-    - Write the JSON string to the specified file path (overwrite if it already exists).
+    - Write the element data as CSV to the specified file path (overwrite if it already exists). The CSV must have a header row (`text,x,y,w,h,font,size,color,bold,italic`) followed by one data row per element. Fields containing commas, quotes, or newlines must be properly escaped per RFC 4180. Optional fields (`color`, `bold`, `italic`) are empty when not applicable. Boolean fields use `true` when set and are empty otherwise.
     - Return the page text summary DTO with the element count, the absolute file path, and the file size in bytes.
     - Round `width` and `height` in the summary DTO to 1 decimal place (consistent with the full response DTO).
 13. **`Extract` method unchanged** — The existing `Extract` method continues to return the full page text response DTO. No changes needed for backward compatibility.
@@ -88,7 +87,8 @@ The test data PDF(s) must include:
 - At least two different fonts (e.g., one regular, one bold)
 - At least one non-black colored text element
 - A page with approximately 300 words to support the ≤ 30 KB response size acceptance criterion (this PDF is also needed by Task 009's integration tests)
-- A dense page with enough words to produce > 30 KB of JSON at word granularity (needed by Task 009 test #16 for verifying `outputFile` on large pages)
+- A dense page with enough words that the inline JSON response at word granularity would exceed 30 KB (needed by Task 009 test #16 for verifying `outputFile` on large pages)
+- At least one text element containing a comma and one containing a double quote, to verify RFC 4180 CSV escaping
 - Multiple words on a single page for word-level extraction testing
 - Content suitable for verifying letter-level extraction
 
@@ -115,11 +115,15 @@ Register the service in `Program.cs` dependency injection as a singleton, follow
 - [ ] Service is registered as a singleton in `Program.cs`.
 - [ ] Test data PDF(s) exist in `tests/TestData/` with known text, fonts, and colors.
 - [ ] Page text summary DTO is defined as an immutable record with page, width, height, elementCount, outputFile, and sizeBytes fields.
-- [ ] `ExtractToFile` writes the full JSON to disk, then returns a summary DTO with correct fields.
+- [ ] `ExtractToFile` writes element data as CSV to disk, then returns a summary DTO with correct fields.
 - [ ] `Extract` continues to return the full page text response DTO unchanged (backward-compatible).
 - [ ] `ExtractToFile` internally delegates to `Extract` to obtain the full data before writing.
 - [ ] The `outputFile` path is validated: relative paths and path traversal sequences are rejected with `ArgumentException`.
 - [ ] If the parent directory of `outputFile` does not exist, `ArgumentException` is thrown.
+- [ ] The CSV file has a header row (`text,x,y,w,h,font,size,color,bold,italic`) followed by one data row per element.
+- [ ] CSV fields containing commas, quotes, or newlines are properly escaped per RFC 4180.
+- [ ] Boolean fields in CSV use `true` when set and are empty otherwise.
+- [ ] The CSV file produced by `ExtractToFile` is substantially smaller than the equivalent JSON serialization of the same data.
 
 ## Testing Requirements
 
@@ -136,10 +140,12 @@ Unit tests must cover:
 9. **Page number validation** — Verify that out-of-range page numbers throw `ArgumentException` (via `IInputValidationService`).
 10. **Invalid PDF** — Verify that a non-PDF file throws `ArgumentException`.
 11. **Serialization** — Verify that the DTOs serialize to expected JSON structure: camelCase properties, null fields omitted, compact format.
-12. **ExtractToFile writes to disk** — Given a valid output file path, verify `ExtractToFile` writes JSON to disk and returns a summary DTO with correct `elementCount`, `outputFile`, and `sizeBytes` values.
-13. **ExtractToFile file content** — Verify the written file contains valid JSON matching the full page text response structure.
-14. **ExtractToFile overwrite** — Verify that if the output file already exists, it is overwritten without error.
-15. **ExtractToFile relative path rejected** — Verify that a relative output file path throws `ArgumentException`.
-16. **ExtractToFile path traversal rejected** — Verify that an output file path containing `..` throws `ArgumentException`.
-17. **ExtractToFile directory missing** — Verify that an output file path in a nonexistent directory throws `ArgumentException`.
-18. **Extract unchanged** — Verify that `Extract` continues to return the full page text response DTO with no file I/O side effects.
+12. **ExtractToFile writes to disk** — Given a valid output file path, verify `ExtractToFile` writes a CSV file to disk and returns a summary DTO with correct `elementCount`, `outputFile`, and `sizeBytes` values.
+13. **ExtractToFile file content** — Verify the written file is valid CSV with a header row (`text,x,y,w,h,font,size,color,bold,italic`) and the correct number of data rows matching the element count.
+14. **ExtractToFile CSV escaping** — Verify that text elements containing commas or quotes are properly escaped per RFC 4180.
+15. **ExtractToFile boolean fields** — Verify that bold/italic fields in CSV use `true` when set and are empty otherwise.
+16. **ExtractToFile overwrite** — Verify that if the output file already exists, it is overwritten without error.
+17. **ExtractToFile relative path rejected** — Verify that a relative output file path throws `ArgumentException`.
+18. **ExtractToFile path traversal rejected** — Verify that an output file path containing `..` throws `ArgumentException`.
+19. **ExtractToFile directory missing** — Verify that an output file path in a nonexistent directory throws `ArgumentException`.
+20. **Extract unchanged** — Verify that `Extract` continues to return the full page text response DTO with no file I/O side effects.

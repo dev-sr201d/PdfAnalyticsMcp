@@ -398,15 +398,26 @@ public class ErrorHandlingVerificationTests : IDisposable
     {
         await PerformHandshakeAsync();
 
-        var pdfPath = GetTestDataPath("sample-with-metadata.pdf");
-        using var fileLock = new FileStream(pdfPath, FileMode.Open, FileAccess.Read, FileShare.None);
+        // Copy to a dedicated temp file in TestData so the exclusive lock doesn't
+        // interfere with parallel tests that also open sample-with-metadata.pdf.
+        var sourcePath = GetTestDataPath("sample-with-metadata.pdf");
+        var tempPath = GetTestDataPath($"locked-{Guid.NewGuid()}.pdf");
+        File.Copy(sourcePath, tempPath);
+        try
+        {
+            using var fileLock = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.None);
 
-        var args = BuildToolArgs(tool, pdfPath: pdfPath, page: 1);
-        var response = await CallToolAsync(tool, args);
-        Assert.NotNull(response);
+            var args = BuildToolArgs(tool, pdfPath: tempPath, page: 1);
+            var response = await CallToolAsync(tool, args);
+            Assert.NotNull(response);
 
-        var errorText = GetErrorText(response);
-        AssertNoInternalDetailsLeaked(errorText);
+            var errorText = GetErrorText(response);
+            AssertNoInternalDetailsLeaked(errorText);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
     }
 
     // ========================================================
