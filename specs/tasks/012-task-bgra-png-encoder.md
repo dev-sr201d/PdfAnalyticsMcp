@@ -1,4 +1,4 @@
-# Task 014: BGRA-to-PNG Encoder Utility
+# Task 012: BGRA-to-PNG Encoder Utility
 
 ## Description
 
@@ -6,7 +6,7 @@ Create an internal utility that encodes raw BGRA pixel data (as produced by Docn
 
 ## Traces To
 
-- **FRD:** FRD-006 (Page Rendering Preview — RenderPagePreview), Functional Requirement 6–7
+- **FRD:** FRD-005 (Page Rendering — RenderPagePreview), Functional Requirement 6–7
 - **PRD:** REQ-5 (Page rendering)
 - **ADRs:** ADR-0004 (Docnet/PDF rendering)
 

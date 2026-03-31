@@ -2,7 +2,7 @@
 
 ## Traces To
 
-- **PRD:** REQ-8 (Robust error handling)
+- **PRD:** REQ-8 (Robust error handling), REQ-10 (Concurrent tool safety)
 - **ADRs:** ADR-0003 (MCP SDK error model), ADR-0005 (Serialization)
 
 ## Summary
@@ -37,27 +37,25 @@ This feature applies to all tools: `GetPdfInfo`, `GetPageText`, `GetPageGraphics
 | Tool | Parameter | Condition | Behavior |
 |------|-----------|-----------|----------|
 | `GetPageText` | `granularity` | Value is not `"words"` or `"letters"` | Return error: "Granularity must be 'words' or 'letters'." |
+| `GetPageText` | `outputFile` | Path is not absolute, contains `..`, or parent directory doesn't exist | Return appropriate error (see FRD-003) |
+| `GetPageImages` | `outputPath` | Path is not absolute, contains `..`, or directory doesn't exist | Return appropriate error (see FRD-006) |
 | `RenderPagePreview` | `dpi` | Value less than 72 or greater than 600 | Return error: "DPI must be between 72 and 600." |
 
 ## Functional Requirements
 
 1. Input validation must happen at the tool method boundary, before any PDF processing begins.
-1. The server must handle concurrent tool invocations safely. When multiple tools are invoked in parallel against the same PDF file, each call must succeed independently without data corruption, crashes, or transient failures caused by resource contention between the underlying PDF parsing and rendering engines.
-2. Validation errors must be returned to the caller as error responses with clear, user-facing messages.
-3. Protocol-level errors must be distinguished from application validation errors. Application validation errors must never be surfaced as protocol errors.
-4. Error messages must **never** expose:
+2. The server must handle concurrent tool invocations safely. When multiple tools are invoked in parallel against the same PDF file, each call must succeed independently without data corruption, crashes, or transient failures caused by resource contention between the underlying PDF parsing and rendering engines.       
+3. Validation errors must be returned to the caller as error responses with clear, user-facing messages.
+4. Protocol-level errors must be distinguished from application validation errors. Application validation errors must never be surfaced as protocol errors.     
+5. Error messages must **never** expose:
    - Stack traces
    - Internal file paths beyond what the user provided
    - System information (OS, .NET version, library internals)
-5. When a PDF file can be opened but a specific extraction or rendering operation fails on a page (e.g., a corrupted content stream or an unsupported PDF feature), the error must be reported as a tool error for that specific call — it must not crash the server. This applies equally to the text/graphics/images extraction engine and the page rendering engine, which are independent components.
-6. The server must remain operational after any tool error — errors are per-call, not fatal.
-7. File path validation must reject path traversal sequences to prevent directory traversal attacks.
-8. File-open errors must be classified into two distinct categories: (a) file access/I/O errors (locked files, permission denied, sharing violations) and (b) invalid PDF format errors (not a PDF, corrupt file structure). Each category must produce a distinct error message so that callers can distinguish transient concurrency-related access failures from permanent file format problems.
-
-## Dependencies
-
-- Features 001–006 (all tool implementations) should be complete or in progress.
-- Understanding of the MCP SDK error model (ADR-0003).
+6. When a PDF file can be opened but a specific extraction or rendering operation fails on a page (e.g., a corrupted content stream or an unsupported PDF feature), the error must be reported as a tool error for that specific call — it must not crash the server. This applies equally to the text/graphics/images extraction engine and the page rendering engine, which are independent components.
+7. The server must remain operational after any tool error — errors are per-call, not fatal.
+8. File path validation must reject path traversal sequences to prevent directory traversal attacks.
+9. File-open errors must be classified into two distinct categories: (a) file access/I/O errors (locked files, permission denied, sharing violations) and (b) invalid PDF format errors (not a PDF, corrupt file structure). Each category must produce a distinct error message so that callers can distinguish transient concurrency-related access failures from permanent file format problems.
+10. When a tool call is cancelled by the MCP client (via cancellation token), the server must release any resources held by that call (file handles, native rendering resources) and must not leave the server in a degraded state. The cancellation behavior is handled by the MCP SDK; the server must not interfere with it or catch cancellation exceptions as application errors.
 
 ## Acceptance Criteria
 
@@ -75,3 +73,6 @@ This feature applies to all tools: `GetPdfInfo`, `GetPageText`, `GetPageGraphics
 - [ ] File access errors and invalid PDF errors produce different, distinguishable error messages across all tools and underlying engines.
 - [ ] Calling `RenderPagePreview` on a page that the rendering engine cannot process returns a clear error, not a corrupt image or crash.
 - [ ] When multiple tools are invoked in parallel against the same PDF file, all calls succeed independently without transient failures.
+- [ ] Calling `GetPageText` with an `outputFile` that is not an absolute path, contains `..`, or whose parent directory does not exist returns a clear validation error before any PDF processing begins.
+- [ ] Calling `GetPageImages` with an `outputPath` that is not an absolute path, contains `..`, or does not exist as a directory returns a clear validation error before any PDF processing begins.
+- [ ] All tool errors are logged server-side to stderr at an appropriate severity level, including additional diagnostic context not exposed to the caller.

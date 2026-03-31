@@ -11,6 +11,15 @@ public class RenderPagePreviewService(IInputValidationService validationService,
 
     public async Task<RenderPagePreviewResult> RenderAsync(string pdfPath, int page, int dpi, CancellationToken cancellationToken = default)
     {
+        var raw = await RenderRawAsync(pdfPath, page, dpi, cancellationToken);
+
+        byte[] pngData = PngEncoder.Encode(raw.BgraData, raw.Width, raw.Height);
+
+        return new RenderPagePreviewResult(page, dpi, raw.Width, raw.Height, pngData);
+    }
+
+    public async Task<RenderRawResult> RenderRawAsync(string pdfPath, int page, int dpi, CancellationToken cancellationToken = default)
+    {
         validationService.ValidateFilePath(pdfPath);
 
         if (dpi < 72 || dpi > 600)
@@ -64,7 +73,7 @@ public class RenderPagePreviewService(IInputValidationService validationService,
                     height = pageReader.GetPageHeight();
                     rawBytes = pageReader.GetImage();
                 }
-                catch (Exception ex) when (ex is not ArgumentException)
+                catch (Exception ex) when (ex is not ArgumentException and not OperationCanceledException)
                 {
                     throw new ArgumentException($"An error occurred rendering page {page}.");
                 }
@@ -76,9 +85,7 @@ public class RenderPagePreviewService(IInputValidationService validationService,
 
                 logger.LogDebug("Rendered page {Page} at {Dpi} DPI: {Width}x{Height} pixels.", page, dpi, width, height);
 
-                byte[] pngData = PngEncoder.Encode(rawBytes, width, height);
-
-                return new RenderPagePreviewResult(page, dpi, width, height, pngData);
+                return new RenderRawResult(width, height, rawBytes);
             }
         }
         finally

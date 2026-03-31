@@ -13,13 +13,13 @@ Both error messages must be consistent across both engines (PdfPig and Docnet).
 
 ## Traces To
 
-- **Feature:** FRD-007 (Error Handling & Input Validation), Functional Requirement 9
+- **FRD:** FRD-007 (Error Handling & Input Validation), Functional Requirement 9
 - **PRD:** REQ-8 (Robust error handling), REQ-10 (Concurrent tool safety)
 
 ## Dependencies
 
-- Task 015 (RenderPagePreview Service and DTO) — must be implemented first
-- Task 016 (RenderPagePreview Tool and Integration Tests) — existing tests will need updating
+- Task 013 (RenderPagePreview Service and DTO) — must be implemented first
+- Task 014 (RenderPagePreview Tool and Integration Tests) — existing tests will need updating
 
 ## Technical Requirements
 

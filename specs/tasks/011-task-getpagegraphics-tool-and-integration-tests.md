@@ -70,10 +70,10 @@ Each parameter's `[Description]` must explain:
 
 ## Testing Requirements
 
-Integration tests must follow the established MCP protocol test pattern from `GetPdfInfoIntegrationTests` and `GetPageTextIntegrationTests`:
-- Launch the server as a child process communicating over stdio
-- Perform MCP handshake (initialize → notifications/initialized) before tool calls
-- Send `tools/call` requests with JSON-RPC protocol
+Integration tests must follow the established MCP protocol test pattern. The test class inherits from `McpIntegrationTestBase` (created in Task 003):
+- Perform MCP handshake via `PerformHandshakeAsync()` before tool calls
+- Use `CallToolAsync()` for `tools/call` requests
+- Use `GetToolResultContent()` to extract text content from responses
 - Validate responses with appropriate timeouts
 
 ### Required Integration Test Scenarios

@@ -1,4 +1,4 @@
-# Task 016: RenderPagePreview Tool and Integration Tests
+# Task 014: RenderPagePreview Tool and Integration Tests
 
 ## Description
 
@@ -6,7 +6,7 @@ Create the MCP tool class for `RenderPagePreview` and comprehensive integration 
 
 ## Traces To
 
-- **FRD:** FRD-006 (Page Rendering Preview — RenderPagePreview)
+- **FRD:** FRD-005 (Page Rendering — RenderPagePreview)
 - **FRD:** FRD-007 (Error Handling & Input Validation)
 - **PRD:** REQ-5 (Page rendering), REQ-7 (Page-by-page processing), REQ-8 (Robust error handling)
 - **ADRs:** ADR-0003 (MCP SDK), ADR-0004 (Docnet/PDF rendering), ADR-0005 (Serialization)
@@ -16,7 +16,7 @@ Create the MCP tool class for `RenderPagePreview` and comprehensive integration 
 - **Task 002** — MCP server host with stdio transport (complete)
 - **Task 003** — Test project and server verification (complete)
 - **Task 007** — GetPdfInfo tool and integration tests — establishes the MCP integration test pattern (complete)
-- **Task 015** — RenderPagePreview service and DTO (must be complete before this task)
+- **Task 013** — RenderPagePreview service and DTO (must be complete before this task)
 
 ## Technical Requirements
 
@@ -93,7 +93,7 @@ Serialize using `SerializerConfig.Options` (camelCase, no nulls, no indentation)
 
 ## Testing Requirements
 
-Integration tests must follow the established MCP protocol test pattern from existing integration test classes: launch the server as a child process, perform MCP handshake, send `tools/call` JSON-RPC requests, and validate responses.
+Integration tests must follow the established MCP protocol test pattern. The test class inherits from `McpIntegrationTestBase` (created in Task 003), using its `PerformHandshakeAsync()`, `CallToolAsync()`, and protocol helper methods.
 
 ### Important: Response Structure Differences
 
@@ -141,4 +141,4 @@ Unlike the other tools (which return a single `TextContentBlock`), this tool ret
 
 16. **DPI too high** — Call with `dpi=700`. Verify the error mentions the valid DPI range.
 
-> **Note:** FRD-006 acceptance criteria include "Pages that PDFium cannot render produce a clear error message rather than empty/corrupt image data." This scenario is covered at the unit level in Task 015 (null/empty pixel data check) but is not integration-tested here because it requires a specially crafted PDF with a corrupted page stream, which is not feasible with standard test data. The unit-level guard in the service is sufficient.
+> **Note:** FRD-005 acceptance criteria include "Pages that PDFium cannot render produce a clear error message rather than empty/corrupt image data." This scenario is covered at the unit level in Task 013 (null/empty pixel data check) but is not integration-tested here because it requires a specially crafted PDF with a corrupted page stream, which is not feasible with standard test data. The unit-level guard in the service is sufficient.

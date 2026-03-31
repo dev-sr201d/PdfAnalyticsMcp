@@ -1,60 +1,25 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
 namespace PdfAnalyticsMcp.Tests;
 
-public class GetPageImagesIntegrationTests : IDisposable
+public class GetPageImagesIntegrationTests : McpIntegrationTestBase, IDisposable
 {
-    private readonly Process _serverProcess;
-    private readonly StringBuilder _stderrOutput = new();
-    private int _requestId;
+    private readonly string _tempDir;
 
     public GetPageImagesIntegrationTests()
     {
-        var serverExePath = GetServerExePath();
-
-        _serverProcess = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = serverExePath,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            }
-        };
-
-        _serverProcess.ErrorDataReceived += (_, e) =>
-        {
-            if (e.Data is not null)
-                _stderrOutput.AppendLine(e.Data);
-        };
-
-        _serverProcess.Start();
-        _serverProcess.BeginErrorReadLine();
+        _tempDir = Path.Combine(Path.GetTempPath(), $"PdfImagesIntegration_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempDir);
     }
 
-    public void Dispose()
+    public new void Dispose()
     {
-        try
+        base.Dispose();
+        if (Directory.Exists(_tempDir))
         {
-            if (!_serverProcess.HasExited)
-            {
-                _serverProcess.StandardInput.Close();
-                _serverProcess.WaitForExit(5000);
-                if (!_serverProcess.HasExited)
-                    _serverProcess.Kill();
-            }
+            try { Directory.Delete(_tempDir, recursive: true); } catch { }
         }
-        catch
-        {
-            // Best-effort cleanup
-        }
-
-        _serverProcess.Dispose();
     }
 
     [Fact]
@@ -85,7 +50,7 @@ public class GetPageImagesIntegrationTests : IDisposable
         Assert.True(schema.TryGetProperty("properties", out var props));
         Assert.True(props.TryGetProperty("pdfPath", out _));
         Assert.True(props.TryGetProperty("page", out _));
-        Assert.True(props.TryGetProperty("includeData", out _));
+        Assert.True(props.TryGetProperty("outputPath", out _));
     }
 
     [Fact]
@@ -121,14 +86,14 @@ public class GetPageImagesIntegrationTests : IDisposable
     }
 
     [Fact]
-    public async Task GetPageImages_IncludeDataOmitted_NoDataField()
+    public async Task GetPageImages_OutputPathOmitted_NoFileField()
     {
         await PerformHandshakeAsync();
 
         TestPdfGenerator.CreateImageTestPdf();
         var pdfPath = TestPdfGenerator.GetTestDataPath("sample-image.pdf");
 
-        // Do NOT pass includeData at all — test default behavior
+        // Do NOT pass outputPath at all — test default behavior
         var response = await CallToolAsync("get_page_images", new { pdfPath, page = 1 });
         Assert.NotNull(response);
 
@@ -139,19 +104,19 @@ public class GetPageImagesIntegrationTests : IDisposable
 
         foreach (var image in images.EnumerateArray())
         {
-            Assert.False(image.TryGetProperty("data", out _), "data field should be omitted when includeData is not specified.");
+            Assert.False(image.TryGetProperty("file", out _), "file field should be omitted when outputPath is not specified.");
         }
     }
 
     [Fact]
-    public async Task GetPageImages_IncludeDataFalse_NoDataField()
+    public async Task GetPageImages_WithOutputPath_ExtractsFilesAndReturnsFilePaths()
     {
         await PerformHandshakeAsync();
 
         TestPdfGenerator.CreateImageTestPdf();
         var pdfPath = TestPdfGenerator.GetTestDataPath("sample-image.pdf");
 
-        var response = await CallToolAsync("get_page_images", new { pdfPath, page = 1, includeData = false });
+        var response = await CallToolAsync("get_page_images", new { pdfPath, page = 1, outputPath = _tempDir });
         Assert.NotNull(response);
 
         var result = GetToolResultContent(response);
@@ -161,19 +126,22 @@ public class GetPageImagesIntegrationTests : IDisposable
 
         foreach (var image in images.EnumerateArray())
         {
-            Assert.False(image.TryGetProperty("data", out _), "data field should be omitted when includeData is false.");
+            Assert.True(image.TryGetProperty("file", out var fileElement), "file field should be present when outputPath is provided.");
+            var filePath = fileElement.GetString()!;
+            Assert.True(Path.IsPathRooted(filePath), "file field should be an absolute path.");
+            Assert.True(File.Exists(filePath), $"Expected PNG file to exist: {filePath}");
         }
     }
 
     [Fact]
-    public async Task GetPageImages_IncludeDataTrue_ReturnsBase64Data()
+    public async Task GetPageImages_WithOutputPath_FileNamingConvention()
     {
         await PerformHandshakeAsync();
 
         TestPdfGenerator.CreateImageTestPdf();
         var pdfPath = TestPdfGenerator.GetTestDataPath("sample-image.pdf");
 
-        var response = await CallToolAsync("get_page_images", new { pdfPath, page = 1, includeData = true });
+        var response = await CallToolAsync("get_page_images", new { pdfPath, page = 1, outputPath = _tempDir });
         Assert.NotNull(response);
 
         var result = GetToolResultContent(response);
@@ -181,28 +149,19 @@ public class GetPageImagesIntegrationTests : IDisposable
         var images = json.RootElement.GetProperty("images");
         Assert.True(images.GetArrayLength() > 0);
 
-        bool hasData = false;
-        foreach (var image in images.EnumerateArray())
-        {
-            if (image.TryGetProperty("data", out var dataElement))
-            {
-                var dataStr = dataElement.GetString();
-                Assert.False(string.IsNullOrEmpty(dataStr));
-                hasData = true;
-            }
-        }
-        Assert.True(hasData, "Expected at least one image with base64 data when includeData is true.");
+        var file = images[0].GetProperty("file").GetString()!;
+        Assert.Equal("sample-image_p1_img1.png", Path.GetFileName(file));
     }
 
     [Fact]
-    public async Task GetPageImages_Base64FormatValidation_NoPrefixAndValidPng()
+    public async Task GetPageImages_WithOutputPath_ExtractedFilesAreValidPngs()
     {
         await PerformHandshakeAsync();
 
         TestPdfGenerator.CreateImageTestPdf();
         var pdfPath = TestPdfGenerator.GetTestDataPath("sample-image.pdf");
 
-        var response = await CallToolAsync("get_page_images", new { pdfPath, page = 1, includeData = true });
+        var response = await CallToolAsync("get_page_images", new { pdfPath, page = 1, outputPath = _tempDir });
         Assert.NotNull(response);
 
         var result = GetToolResultContent(response);
@@ -211,16 +170,9 @@ public class GetPageImagesIntegrationTests : IDisposable
 
         foreach (var image in images.EnumerateArray())
         {
-            if (image.TryGetProperty("data", out var dataElement))
+            if (image.TryGetProperty("file", out var fileElement))
             {
-                var dataStr = dataElement.GetString()!;
-
-                // Verify no data URI prefix
-                Assert.DoesNotContain("data:", dataStr);
-                Assert.DoesNotContain("base64,", dataStr);
-
-                // Decode and verify PNG header
-                var bytes = Convert.FromBase64String(dataStr);
+                var bytes = File.ReadAllBytes(fileElement.GetString()!);
                 Assert.True(bytes.Length >= 4);
                 Assert.Equal(0x89, bytes[0]); // PNG signature
                 Assert.Equal((byte)'P', bytes[1]);
@@ -277,7 +229,7 @@ public class GetPageImagesIntegrationTests : IDisposable
     }
 
     [Fact]
-    public async Task GetPageImages_ResponseSizeWithoutData_Under30KB()
+    public async Task GetPageImages_ResponseSizeWithoutOutputPath_Under30KB()
     {
         await PerformHandshakeAsync();
 
@@ -389,109 +341,64 @@ public class GetPageImagesIntegrationTests : IDisposable
         Assert.Contains("Page number must be 1 or greater", text);
     }
 
-    #region Helper Methods
+    [Fact]
+    public async Task GetPageImages_InvalidOutputPath_RelativePath_ReturnsError()
+    {
+        await PerformHandshakeAsync();
+
+        TestPdfGenerator.CreateImageTestPdf();
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-image.pdf");
+
+        var response = await CallToolAsync("get_page_images", new { pdfPath, page = 1, outputPath = "relative/path" });
+        Assert.NotNull(response);
+
+        var resultElement = response.RootElement.GetProperty("result");
+        Assert.True(resultElement.GetProperty("isError").GetBoolean());
+
+        var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
+        Assert.Contains("absolute", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetPageImages_InvalidOutputPath_PathTraversal_ReturnsError()
+    {
+        await PerformHandshakeAsync();
+
+        TestPdfGenerator.CreateImageTestPdf();
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-image.pdf");
+
+        var response = await CallToolAsync("get_page_images", new { pdfPath, page = 1, outputPath = @"C:\temp\..\secret" });
+        Assert.NotNull(response);
+
+        var resultElement = response.RootElement.GetProperty("result");
+        Assert.True(resultElement.GetProperty("isError").GetBoolean());
+
+        var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
+        Assert.Contains("..", text);
+    }
+
+    [Fact]
+    public async Task GetPageImages_InvalidOutputPath_NonExistentDirectory_ReturnsError()
+    {
+        await PerformHandshakeAsync();
+
+        TestPdfGenerator.CreateImageTestPdf();
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-image.pdf");
+
+        var nonExistent = Path.Combine(_tempDir, "does_not_exist_subdir");
+        var response = await CallToolAsync("get_page_images", new { pdfPath, page = 1, outputPath = nonExistent });
+        Assert.NotNull(response);
+
+        var resultElement = response.RootElement.GetProperty("result");
+        Assert.True(resultElement.GetProperty("isError").GetBoolean());
+
+        var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
+        Assert.Contains("does not exist", text, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static void AssertAtMostOneDecimalPlace(double value)
     {
         var rounded = Math.Round(value, 1);
         Assert.Equal(rounded, value, precision: 10);
     }
-
-    private async Task PerformHandshakeAsync()
-    {
-        var initializeRequest = CreateJsonRpcRequest("initialize", new
-        {
-            protocolVersion = "2024-11-05",
-            capabilities = new { },
-            clientInfo = new { name = "test-client", version = "1.0.0" }
-        });
-        await SendMessageAsync(initializeRequest);
-        await ReadResponseAsync(TimeSpan.FromSeconds(10));
-
-        var initializedNotification = CreateJsonRpcNotification("notifications/initialized");
-        await SendMessageAsync(initializedNotification);
-    }
-
-    private async Task<JsonDocument?> CallToolAsync(string toolName, object arguments)
-    {
-        var request = CreateJsonRpcRequest("tools/call", new
-        {
-            name = toolName,
-            arguments
-        });
-        await SendMessageAsync(request);
-        return await ReadResponseAsync(TimeSpan.FromSeconds(10));
-    }
-
-    private static string GetToolResultContent(JsonDocument response)
-    {
-        var result = response.RootElement.GetProperty("result");
-        var content = result.GetProperty("content");
-        return content[0].GetProperty("text").GetString()!;
-    }
-
-    private string CreateJsonRpcRequest(string method, object? @params)
-    {
-        var id = ++_requestId;
-        var request = new
-        {
-            jsonrpc = "2.0",
-            id,
-            method,
-            @params
-        };
-        return JsonSerializer.Serialize(request);
-    }
-
-    private static string CreateJsonRpcNotification(string method)
-    {
-        var notification = new
-        {
-            jsonrpc = "2.0",
-            method
-        };
-        return JsonSerializer.Serialize(notification);
-    }
-
-    private async Task SendMessageAsync(string message)
-    {
-        await _serverProcess.StandardInput.WriteLineAsync(message);
-        await _serverProcess.StandardInput.FlushAsync();
-    }
-
-    private async Task<JsonDocument?> ReadResponseAsync(TimeSpan timeout)
-    {
-        using var cts = new CancellationTokenSource(timeout);
-
-        try
-        {
-            var line = await _serverProcess.StandardOutput.ReadLineAsync(cts.Token);
-            if (line is null)
-                return null;
-
-            return JsonDocument.Parse(line);
-        }
-        catch (OperationCanceledException)
-        {
-            return null;
-        }
-    }
-
-    private static string GetServerExePath()
-    {
-        var testAssemblyDir = AppContext.BaseDirectory;
-        var repoRoot = Path.GetFullPath(Path.Combine(testAssemblyDir, "..", "..", "..", "..", ".."));
-        var serverExe = Path.Combine(repoRoot, "src", "PdfAnalyticsMcp", "bin", "Debug", "net9.0",
-            OperatingSystem.IsWindows() ? "PdfAnalyticsMcp.exe" : "PdfAnalyticsMcp");
-
-        if (!File.Exists(serverExe))
-        {
-            throw new FileNotFoundException(
-                $"Server executable not found at '{serverExe}'. Build the server project first.");
-        }
-
-        return serverExe;
-    }
-
-    #endregion
 }

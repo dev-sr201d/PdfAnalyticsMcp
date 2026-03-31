@@ -149,20 +149,29 @@ public class ErrorHandlingVerificationTests : IDisposable
     {
         await PerformHandshakeAsync();
 
-        var pdfPath = GetTestDataPath("sample-with-metadata.pdf");
-        using var fileLock = new FileStream(pdfPath, FileMode.Open, FileAccess.Read, FileShare.None);
-
-        var messages = new Dictionary<string, string>();
-        foreach (var tool in AllTools)
+        var sourcePath = GetTestDataPath("sample-with-metadata.pdf");
+        var tempPath = GetTestDataPath($"locked-consistency-{Guid.NewGuid()}.pdf");
+        File.Copy(sourcePath, tempPath);
+        try
         {
-            var args = BuildToolArgs(tool, pdfPath: pdfPath, page: 1);
-            var response = await CallToolAsync(tool, args);
-            Assert.NotNull(response);
-            messages[tool] = ExtractValidationMessage(GetErrorText(response));
-        }
+            using var fileLock = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.None);
 
-        var expected = $"The file could not be accessed: {pdfPath}. It may be in use by another process.";
-        AssertAllMessagesEqual(expected, messages);
+            var messages = new Dictionary<string, string>();
+            foreach (var tool in AllTools)
+            {
+                var args = BuildToolArgs(tool, pdfPath: tempPath, page: 1);
+                var response = await CallToolAsync(tool, args);
+                Assert.NotNull(response);
+                messages[tool] = ExtractValidationMessage(GetErrorText(response));
+            }
+
+            var expected = $"The file could not be accessed: {tempPath}. It may be in use by another process.";
+            AssertAllMessagesEqual(expected, messages);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
     }
 
     [Fact]
@@ -213,24 +222,32 @@ public class ErrorHandlingVerificationTests : IDisposable
     {
         await PerformHandshakeAsync();
 
-        var pdfPath = GetTestDataPath("sample-with-metadata.pdf");
+        var sourcePath = GetTestDataPath("sample-with-metadata.pdf");
+        var tempPath = GetTestDataPath($"locked-pdfpig-{Guid.NewGuid()}.pdf");
+        File.Copy(sourcePath, tempPath);
         var nonPdfPath = GetTestDataPath("not-a-pdf.txt");
 
-        // Non-PDF file → invalid PDF error
-        var nonPdfResponse = await CallToolAsync("get_pdf_info", new { pdfPath = nonPdfPath });
-        Assert.NotNull(nonPdfResponse);
-        var invalidPdfMessage = ExtractValidationMessage(GetErrorText(nonPdfResponse));
+        try
+        {
+            // Non-PDF file → invalid PDF error
+            var nonPdfResponse = await CallToolAsync("get_pdf_info", new { pdfPath = nonPdfPath });
+            Assert.NotNull(nonPdfResponse);
+            var invalidPdfMessage = ExtractValidationMessage(GetErrorText(nonPdfResponse));
 
-        // Locked file → file access error
-        using var fileLock = new FileStream(pdfPath, FileMode.Open, FileAccess.Read, FileShare.None);
-        var lockedResponse = await CallToolAsync("get_pdf_info", new { pdfPath });
-        Assert.NotNull(lockedResponse);
-        var fileAccessMessage = ExtractValidationMessage(GetErrorText(lockedResponse));
-        fileLock.Dispose();
+            // Locked file → file access error
+            using var fileLock = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.None);
+            var lockedResponse = await CallToolAsync("get_pdf_info", new { pdfPath = tempPath });
+            Assert.NotNull(lockedResponse);
+            var fileAccessMessage = ExtractValidationMessage(GetErrorText(lockedResponse));
 
-        Assert.NotEqual(invalidPdfMessage, fileAccessMessage);
-        Assert.Equal("The file could not be opened as a PDF.", invalidPdfMessage);
-        Assert.Equal($"The file could not be accessed: {pdfPath}. It may be in use by another process.", fileAccessMessage);
+            Assert.NotEqual(invalidPdfMessage, fileAccessMessage);
+            Assert.Equal("The file could not be opened as a PDF.", invalidPdfMessage);
+            Assert.Equal($"The file could not be accessed: {tempPath}. It may be in use by another process.", fileAccessMessage);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
     }
 
     [Fact]
@@ -238,26 +255,34 @@ public class ErrorHandlingVerificationTests : IDisposable
     {
         await PerformHandshakeAsync();
 
-        var pdfPath = GetTestDataPath("sample-with-metadata.pdf");
+        var sourcePath = GetTestDataPath("sample-with-metadata.pdf");
+        var tempPath = GetTestDataPath($"locked-docnet-{Guid.NewGuid()}.pdf");
+        File.Copy(sourcePath, tempPath);
         var nonPdfPath = GetTestDataPath("not-a-pdf.txt");
 
-        // Non-PDF file → invalid PDF error
-        var nonPdfResponse = await CallToolAsync("render_page_preview",
-            new { pdfPath = nonPdfPath, page = 1, dpi = 150 });
-        Assert.NotNull(nonPdfResponse);
-        var invalidPdfMessage = ExtractValidationMessage(GetErrorText(nonPdfResponse));
+        try
+        {
+            // Non-PDF file → invalid PDF error
+            var nonPdfResponse = await CallToolAsync("render_page_preview",
+                new { pdfPath = nonPdfPath, page = 1, dpi = 150 });
+            Assert.NotNull(nonPdfResponse);
+            var invalidPdfMessage = ExtractValidationMessage(GetErrorText(nonPdfResponse));
 
-        // Locked file → file access error
-        using var fileLock = new FileStream(pdfPath, FileMode.Open, FileAccess.Read, FileShare.None);
-        var lockedResponse = await CallToolAsync("render_page_preview",
-            new { pdfPath, page = 1, dpi = 150 });
-        Assert.NotNull(lockedResponse);
-        var fileAccessMessage = ExtractValidationMessage(GetErrorText(lockedResponse));
-        fileLock.Dispose();
+            // Locked file → file access error
+            using var fileLock = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.None);
+            var lockedResponse = await CallToolAsync("render_page_preview",
+                new { pdfPath = tempPath, page = 1, dpi = 150 });
+            Assert.NotNull(lockedResponse);
+            var fileAccessMessage = ExtractValidationMessage(GetErrorText(lockedResponse));
 
-        Assert.NotEqual(invalidPdfMessage, fileAccessMessage);
-        Assert.Equal("The file could not be opened as a PDF.", invalidPdfMessage);
-        Assert.Equal($"The file could not be accessed: {pdfPath}. It may be in use by another process.", fileAccessMessage);
+            Assert.NotEqual(invalidPdfMessage, fileAccessMessage);
+            Assert.Equal("The file could not be opened as a PDF.", invalidPdfMessage);
+            Assert.Equal($"The file could not be accessed: {tempPath}. It may be in use by another process.", fileAccessMessage);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
     }
 
     // ========================================================
@@ -421,6 +446,73 @@ public class ErrorHandlingVerificationTests : IDisposable
     }
 
     // ========================================================
+    // Parallel Concurrency Tests
+    // ========================================================
+
+    [Fact]
+    public async Task Parallel_MultiplePdfPigToolsSamePdf_AllSucceed()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = GetTestDataPath("sample-with-metadata.pdf");
+
+        // Send 3 requests without waiting for responses
+        var id1 = await SendToolCallAsync("get_pdf_info", new { pdfPath });
+        var id2 = await SendToolCallAsync("get_page_text",
+            new { pdfPath, page = 1, granularity = "words" });
+        var id3 = await SendToolCallAsync("get_page_graphics",
+            new { pdfPath, page = 1 });
+
+        // Read all 3 responses and match by id
+        var responses = await ReadMultipleResponsesAsync(3, TimeSpan.FromSeconds(30));
+        Assert.Equal(3, responses.Count);
+
+        AssertSuccessResponseForId(responses, id1);
+        AssertSuccessResponseForId(responses, id2);
+        AssertSuccessResponseForId(responses, id3);
+    }
+
+    [Fact]
+    public async Task Parallel_MultipleGetPageTextDifferentPages_AllSucceed()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = GetTestDataPath("sample-with-metadata.pdf");
+
+        // Send 2 GetPageText requests for different pages without waiting
+        var id1 = await SendToolCallAsync("get_page_text",
+            new { pdfPath, page = 1, granularity = "words" });
+        var id2 = await SendToolCallAsync("get_page_text",
+            new { pdfPath, page = 2, granularity = "words" });
+
+        var responses = await ReadMultipleResponsesAsync(2, TimeSpan.FromSeconds(30));
+        Assert.Equal(2, responses.Count);
+
+        AssertSuccessResponseForId(responses, id1);
+        AssertSuccessResponseForId(responses, id2);
+    }
+
+    [Fact]
+    public async Task Parallel_PdfPigAndDocnetSamePdf_BothSucceed()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = GetTestDataPath("sample-with-metadata.pdf");
+
+        // Send a PdfPig-based tool and a Docnet-based tool concurrently
+        var id1 = await SendToolCallAsync("get_page_text",
+            new { pdfPath, page = 1, granularity = "words" });
+        var id2 = await SendToolCallAsync("render_page_preview",
+            new { pdfPath, page = 1, dpi = 72 });
+
+        var responses = await ReadMultipleResponsesAsync(2, TimeSpan.FromSeconds(30));
+        Assert.Equal(2, responses.Count);
+
+        AssertSuccessResponseForId(responses, id1);
+        AssertSuccessResponseForId(responses, id2);
+    }
+
+    // ========================================================
     // Helper Methods
     // ========================================================
 
@@ -471,7 +563,7 @@ public class ErrorHandlingVerificationTests : IDisposable
         "get_pdf_info" => new { pdfPath },
         "get_page_text" => (object)new { pdfPath, page, granularity = "words" },
         "get_page_graphics" => new { pdfPath, page },
-        "get_page_images" => new { pdfPath, page, includeData = false },
+        "get_page_images" => new { pdfPath, page },
         "render_page_preview" => new { pdfPath, page, dpi = 150 },
         _ => throw new ArgumentException($"Unknown tool: {tool}")
     };
@@ -523,6 +615,91 @@ public class ErrorHandlingVerificationTests : IDisposable
         });
         await SendMessageAsync(request);
         return await ReadResponseAsync(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>
+    /// Sends a tool call request without waiting for the response.
+    /// Returns the JSON-RPC request id so the caller can match it later.
+    /// </summary>
+    private async Task<int> SendToolCallAsync(string toolName, object arguments)
+    {
+        var id = ++_requestId;
+        var request = new
+        {
+            jsonrpc = "2.0",
+            id,
+            method = "tools/call",
+            @params = new
+            {
+                name = toolName,
+                arguments
+            }
+        };
+        await SendMessageAsync(JsonSerializer.Serialize(request));
+        return id;
+    }
+
+    /// <summary>
+    /// Reads multiple JSON-RPC responses, skipping notifications.
+    /// Returns a dictionary keyed by response id.
+    /// </summary>
+    private async Task<Dictionary<int, JsonDocument>> ReadMultipleResponsesAsync(
+        int count, TimeSpan timeout)
+    {
+        var results = new Dictionary<int, JsonDocument>();
+        using var cts = new CancellationTokenSource(timeout);
+
+        try
+        {
+            while (results.Count < count)
+            {
+                var line = await _serverProcess.StandardOutput.ReadLineAsync(cts.Token);
+                if (line is null)
+                    break;
+
+                var doc = JsonDocument.Parse(line);
+                if (doc.RootElement.TryGetProperty("id", out var idElement))
+                {
+                    results[idElement.GetInt32()] = doc;
+                }
+                else
+                {
+                    doc.Dispose();
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Return whatever we've collected so far
+        }
+
+        return results;
+    }
+
+    private static void AssertSuccessResponseForId(Dictionary<int, JsonDocument> responses, int id)
+    {
+        Assert.True(responses.ContainsKey(id), $"No response received for request id {id}. " +
+            $"Received ids: [{string.Join(", ", responses.Keys)}]");
+        var response = responses[id];
+        var root = response.RootElement;
+
+        // JSON-RPC level error (no "result" property at all)
+        if (root.TryGetProperty("error", out var rpcError))
+        {
+            Assert.Fail($"Request id {id} returned a JSON-RPC error: {rpcError}");
+        }
+
+        Assert.True(root.TryGetProperty("result", out var result),
+            $"Request id {id} response has no 'result' or 'error' property. Raw: {root}");
+
+        var isError = result.TryGetProperty("isError", out var errorProp) && errorProp.GetBoolean();
+        if (isError)
+        {
+            var errorDetail = result.TryGetProperty("content", out var content)
+                ? content[0].GetProperty("text").GetString()
+                : result.ToString();
+            Assert.Fail($"Request id {id} returned a tool error: {errorDetail}");
+        }
     }
 
     private string CreateJsonRpcRequest(string method, object? @params)

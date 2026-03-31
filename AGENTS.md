@@ -76,8 +76,8 @@ The server exposes five tools, each operating on a single PDF page (except `GetP
 | `GetPdfInfo` | Page count, dimensions, title, author, subject, keywords, creator, producer, bookmarks | REQ-1 |
 | `GetPageText` | Text with position, font, size, color; `words` or `letters` granularity; optional `outputFile` for large pages | REQ-2 |
 | `GetPageGraphics` | Classified shapes: rectangles, lines, paths with fill/stroke/color | REQ-3 |
-| `GetPageImages` | Image bounding boxes, dimensions; optional base64 PNG data | REQ-4 |
 | `RenderPagePreview` | Full page rendered as PNG at configurable DPI | REQ-5 |
+| `GetPageImages` | Image bounding boxes, dimensions; optional file-based PNG extraction to disk with render-based fallback for unsupported image formats | REQ-4 |
 
 ---
 

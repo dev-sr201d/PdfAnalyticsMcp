@@ -16,6 +16,9 @@ public class PerPageFailureResilienceTests
     private readonly PageGraphicsService _graphicsService = new(new InputValidationService());
     private readonly PageImagesService _imagesService = new(
         new InputValidationService(),
+        new RenderPagePreviewService(
+            new InputValidationService(),
+            NullLogger<RenderPagePreviewService>.Instance),
         NullLogger<PageImagesService>.Instance);
     private readonly RenderPagePreviewService _renderService = new(
         new InputValidationService(),
@@ -82,22 +85,22 @@ public class PerPageFailureResilienceTests
     // --- PageImagesService: validation errors pass through unchanged ---
 
     [Fact]
-    public void ImagesService_PageOutOfRange_ReturnsValidationError_NotPerPageError()
+    public async Task ImagesService_PageOutOfRange_ReturnsValidationError_NotPerPageError()
     {
         var path = TestPdfGenerator.CreateImageTestPdf();
 
-        var ex = Assert.Throws<ArgumentException>(() => _imagesService.Extract(path, 99, false));
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _imagesService.ExtractAsync(path, 99));
 
         Assert.Contains("does not exist", ex.Message);
         Assert.DoesNotContain("An error occurred extracting images", ex.Message);
     }
 
     [Fact]
-    public void ImagesService_PageZero_ReturnsValidationError_NotPerPageError()
+    public async Task ImagesService_PageZero_ReturnsValidationError_NotPerPageError()
     {
         var path = TestPdfGenerator.CreateImageTestPdf();
 
-        var ex = Assert.Throws<ArgumentException>(() => _imagesService.Extract(path, 0, false));
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _imagesService.ExtractAsync(path, 0));
 
         Assert.Contains("Page number must be 1 or greater", ex.Message);
         Assert.DoesNotContain("An error occurred extracting images", ex.Message);
@@ -166,13 +169,13 @@ public class PerPageFailureResilienceTests
     }
 
     [Fact]
-    public void ImagesService_ValidPage_SucceedsAfterValidationError()
+    public async Task ImagesService_ValidPage_SucceedsAfterValidationError()
     {
         var path = TestPdfGenerator.CreateImageTestPdf();
 
-        Assert.Throws<ArgumentException>(() => _imagesService.Extract(path, 99, false));
+        await Assert.ThrowsAsync<ArgumentException>(() => _imagesService.ExtractAsync(path, 99));
 
-        var result = _imagesService.Extract(path, 1, false);
+        var result = await _imagesService.ExtractAsync(path, 1);
         Assert.NotNull(result);
     }
 
@@ -185,5 +188,32 @@ public class PerPageFailureResilienceTests
 
         var result = await _renderService.RenderAsync(path, 1, 150);
         Assert.True(result.PngData.Length > 0);
+    }
+
+    // --- OperationCanceledException propagates through per-page handlers (FRD-007 FR #10) ---
+
+    [Fact]
+    public async Task RenderService_CancelledToken_PropagatesOperationCanceledException()
+    {
+        var path = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => _renderService.RenderAsync(path, 1, 150, cts.Token));
+    }
+
+    [Fact]
+    public async Task ImagesService_CancelledToken_PropagatesOperationCanceledException()
+    {
+        var path = TestPdfGenerator.CreateImageTestPdf();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        // The cancellation may surface from the render-based fallback path or
+        // from an async operation within ExtractAsync. With a pre-cancelled token,
+        // the service must not swallow the OperationCanceledException.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => _imagesService.ExtractAsync(path, 1, null, cts.Token));
     }
 }

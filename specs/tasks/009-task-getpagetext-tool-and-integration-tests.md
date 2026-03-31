@@ -4,6 +4,13 @@
 
 Create the MCP tool class for `GetPageText` and comprehensive integration tests that exercise the tool through the MCP protocol. The tool is a thin wrapper that validates input, delegates to the page text extraction service, and returns serialized JSON. Integration tests verify end-to-end behavior including tool discovery, successful extraction at both granularity levels, default parameter behavior, and error handling.
 
+## Traces To
+
+- **FRD:** FRD-003 (Page Text Extraction — GetPageText)
+- **FRD:** FRD-007 (Error Handling & Input Validation)
+- **PRD:** REQ-2 (Rich text extraction), REQ-7 (Page-by-page processing), REQ-8 (Robust error handling)
+- **ADRs:** ADR-0003 (MCP SDK), ADR-0005 (Serialization)
+
 ## Dependencies
 
 - **Task 002** — MCP server host with stdio transport (complete)
@@ -76,10 +83,10 @@ Each parameter's `[Description]` must explain:
 
 ## Testing Requirements
 
-Integration tests must follow the established MCP protocol test pattern from `GetPdfInfoIntegrationTests`:
-- Launch the server as a child process communicating over stdio
-- Perform MCP handshake (initialize → notifications/initialized) before tool calls
-- Send `tools/call` requests with JSON-RPC protocol
+Integration tests must follow the established MCP protocol test pattern. The test class inherits from `McpIntegrationTestBase` (created in Task 003):
+- Perform MCP handshake via `PerformHandshakeAsync()` before tool calls
+- Use `CallToolAsync()` for `tools/call` requests
+- Use `GetToolResultContent()` to extract text content from responses
 - Validate responses with appropriate timeouts
 
 ### Required Integration Test Scenarios

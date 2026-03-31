@@ -12,7 +12,7 @@ These validations do not require an open PDF document and should fail fast at th
 
 ## Traces To
 
-- **Feature:** FRD-007 (Error Handling & Input Validation), Functional Requirement 1
+- **FRD:** FRD-007 (Error Handling & Input Validation), Functional Requirement 1
 - **PRD:** REQ-8 (Robust error handling)
 
 ## Dependencies

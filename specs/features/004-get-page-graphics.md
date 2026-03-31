@@ -2,7 +2,7 @@
 
 ## Traces To
 
-- **PRD:** REQ-3 (Graphics extraction and classification), REQ-6 (Data volume management), REQ-7 (Page-by-page processing)
+- **PRD:** REQ-3 (Graphics extraction and classification), REQ-6 (Data volume management), REQ-7 (Page-by-page processing), REQ-10 (Concurrent tool safety)
 - **ADRs:** ADR-0002 (PdfPig), ADR-0005 (Serialization)
 
 ## Summary
@@ -76,6 +76,8 @@ A JSON object containing:
 7. All other paths are classified as **complex paths** with a bounding box and vertex count.
 8. Colors must be extracted from `PdfPath.FillColor` and `PdfPath.StrokeColor` (type `IColor`) via `ToRGBValues()` and normalized to `"#RRGGBB"` hex format. `PatternColor` types must be handled gracefully (treated as null).
 9. Coordinates are already in page space (CTM pre-applied by PdfPig) and must be rounded to 1 decimal place.
+
+> **Note — Data volume on dense pages:** Unlike `GetPageText` (FRD-003), this tool does not currently support an `outputFile` parameter for file-based output. Server-side classification into rectangles, lines, and complex paths (with vertex counts rather than full vertex lists) provides sufficient data reduction for most pages. If future usage reveals pages where the classified graphics response exceeds practical size limits, an `outputFile` option (following the same pattern as FRD-003) could be added in a later iteration.
 
 ## Dependencies
 

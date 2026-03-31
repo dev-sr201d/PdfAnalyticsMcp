@@ -56,7 +56,7 @@ Create the `GetPdfInfo` MCP tool class that wires together the input validation 
 
 ### Integration Tests
 
-Write integration tests that launch the server as a child process and communicate over MCP stdio protocol. These tests must follow the MCP initialization handshake (initialize → initialized notification → tool requests).
+Write integration tests that launch the server as a child process and communicate over MCP stdio protocol. These tests must follow the MCP initialization handshake (initialize → initialized notification → tool requests). The test class inherits from `McpIntegrationTestBase` (created in Task 003).
 
 Required test scenarios:
 

@@ -8,7 +8,7 @@ This task creates a dedicated integration test class that verifies the FRD-007 a
 
 ## Traces To
 
-- **Feature:** FRD-007 (Error Handling & Input Validation), all acceptance criteria
+- **FRD:** FRD-007 (Error Handling & Input Validation), all acceptance criteria
 - **PRD:** REQ-8 (Robust error handling)
 
 ## Dependencies
@@ -62,6 +62,14 @@ This task creates a dedicated integration test class that verifies the FRD-007 a
    - Does not contain .NET type names (e.g., `"NullReferenceException"`, `"PdfDocument"`, `"IOException"`).
    - This must cover all error code paths including: nonexistent file, empty path, non-PDF file, page out of range, **and locked/inaccessible file** errors. The locked-file path exercises a distinct exception handling branch (`IOException` / `UnauthorizedAccessException`) that could leak native exception messages if not properly sanitized.
 
+### Parallel Concurrency Tests
+
+6. Verify that multiple tool calls invoked in parallel against the same PDF file all succeed independently, per PRD REQ-10 and FRD-007 FR #2:
+   - Issue multiple `GetPageText` calls in parallel (e.g., 3 calls for different pages of the same PDF). Verify all return valid results with no errors, data corruption, or transient failures.
+   - Issue parallel calls across different PdfPig-based tools against the same PDF (e.g., `GetPdfInfo`, `GetPageText`, and `GetPageGraphics` concurrently). Verify all succeed.
+   - Issue parallel calls that include both a PdfPig-based tool and `RenderPagePreview` against the same PDF. Verify both succeed (the rendering semaphore serializes Docnet access but must not block PdfPig-based tools).
+   - **Implementation note:** Because the MCP stdio protocol is request-response on a single connection, true parallel invocation requires sending multiple JSON-RPC requests before reading any responses. Send all requests sequentially (without waiting for responses), then read all responses and match by `id`. This tests concurrency at the server level even though the transport is serial.
+
 ## Acceptance Criteria
 
 - [ ] A new integration test class exists that verifies cross-tool error message consistency.
@@ -72,6 +80,8 @@ This task creates a dedicated integration test class that verifies the FRD-007 a
 - [ ] All 4 page-level tools return identical error messages for page 0 and page out of range.
 - [ ] Server continuity is verified: a successful call following a failed call returns correct results.
 - [ ] Error responses are verified to not contain stack traces, internal paths, or .NET type names.
+- [ ] Parallel calls to multiple PdfPig-based tools against the same PDF all succeed independently.
+- [ ] Parallel calls mixing PdfPig-based and Docnet-based tools against the same PDF all succeed independently.
 - [ ] All tests pass.
 
 ## Testing Requirements

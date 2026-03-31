@@ -1,13 +1,15 @@
-# FRD-006: Page Rendering Preview (RenderPagePreview)
+# FRD-005: Page Rendering (RenderPagePreview)
 
 ## Traces To
 
-- **PRD:** REQ-5 (Page rendering), REQ-7 (Page-by-page processing)
+- **PRD:** REQ-5 (Page rendering), REQ-7 (Page-by-page processing), REQ-8 (Robust error handling), REQ-10 (Concurrent tool safety)
 - **ADRs:** ADR-0004 (Docnet/PDF rendering), ADR-0005 (Serialization)
 
 ## Summary
 
-Provide a tool that renders a single PDF page as a PNG image at a configurable DPI. This enables multimodal AI models to visually see the page layout and cross-reference visual appearance with the structured data from other tools. This is an optional but high-value capability — it is the most useful tool for validating structural understanding of complex layouts.
+Provide a rendering service and MCP tool that renders a single PDF page as a PNG image at a configurable DPI. This enables multimodal AI models to visually see the page layout and cross-reference visual appearance with the structured data from other tools. This is an optional but high-value capability — it is the most useful tool for validating structural understanding of complex layouts.
+
+The rendering service also exposes a raw BGRA pixel buffer API for internal use by other features (e.g., image extraction fallback in FRD-006) that need to crop regions from a rendered page before encoding to PNG.
 
 This feature introduces a separate dependency (Docnet/PDFium) from the core PdfPig-based tools.
 
@@ -37,6 +39,8 @@ The tool must return its response as multiple MCP content blocks:
 
 ## Functional Requirements
 
+### Rendering Engine
+
 1. The tool must operate on a single page per call (REQ-7).
 2. The tool must use Docnet (`Docnet.Core`) to render the page, which wraps the PDFium rendering engine.
 3. Docnet uses **0-based page indexing** — the tool must subtract 1 from the user-provided 1-based page number.
@@ -47,6 +51,24 @@ The tool must return its response as multiple MCP content blocks:
 8. Both `IDocReader` and `IPageReader` must be disposed after use (they hold native resources).
 9. The tool must accept a DPI range of 72–600. Values outside this range must be rejected with a clear error message.
 10. The rendering engine uses native platform libraries that are not safe for concurrent use from multiple threads. The server must ensure that concurrent rendering requests are serialized so that only one rendering operation executes at a time. Other tool types (text, graphics, images) are not affected by this constraint and may execute concurrently.
+
+### Cancellation
+
+11. The tool must support cancellation via the MCP client's cancellation signal. If a rendering request is cancelled while waiting for access to the serialized rendering engine, it must stop waiting and return promptly rather than blocking until the current render completes.
+12. If a rendering request is cancelled during the rendering operation itself, the tool must release rendering engine resources and return promptly.
+
+### Resource Safety
+
+13. If the rendering engine fails to allocate memory for the pixel buffer (e.g., at high DPI values on memory-constrained systems), the tool must return a clear error message rather than crashing the server process.
+
+### Raw BGRA Buffer API (Internal Service)
+
+The rendering service must expose a lower-level method that returns the raw BGRA pixel buffer (before PNG encoding), enabling other features to crop sub-regions from a rendered page.
+
+14. The service interface must include a method (e.g., `RenderRawAsync`) that accepts the same parameters as the primary render method (`pdfPath`, `page`, `dpi`, `CancellationToken`) but returns the raw BGRA pixel buffer along with the rendered width and height — **not** a PNG-encoded result.
+15. This method must use the same rendering semaphore, Docnet lifecycle, error handling, and input validation as the primary render method.
+16. The raw BGRA buffer is returned as-is from Docnet (with transparent alpha channel intact). The caller is responsible for any alpha compositing and PNG encoding of cropped regions. This avoids double-compositing — the caller composites once when encoding the final crop.
+17. The primary render method (`RenderAsync`) may internally delegate to the raw render method and then encode the result, or maintain its own implementation. Either approach is acceptable as long as both methods share the same semaphore and error handling.
 
 ## Response Size Considerations
 
@@ -59,9 +81,12 @@ To manage data volume:
 
 ## Error Handling
 
+Standard file path and page number validation rules apply as defined in FRD-007. The error messages for file access failures and invalid PDF format errors must be consistent with the patterns specified there, even though this tool uses Docnet/PDFium rather than PdfPig.
+
 1. If the PDF file cannot be opened by Docnet/PDFium, the tool must return a clear error indicating the file could not be rendered.
 2. If the requested page number is out of range, the tool must return a clear error with the valid page range.
 3. If PDFium encounters a rendering failure on a valid page (e.g., corrupted page content, unsupported PDF features), the tool must return a clear error rather than returning an empty or corrupt image.
+4. If the rendering operation fails due to memory allocation failure (e.g., insufficient memory for the pixel buffer at high DPI), the tool must return a clear error rather than crashing the server.
 
 ## Dependencies
 
@@ -73,6 +98,7 @@ To manage data volume:
 
 ## Acceptance Criteria
 
+### Tool
 - [ ] Calling `RenderPagePreview` with default DPI renders the page at 150 DPI and returns a valid PNG as an MCP image content block.
 - [ ] Calling `RenderPagePreview` with a custom DPI (e.g., 72, 300) renders at the requested resolution.
 - [ ] The metadata text block contains correct `width`, `height`, `page`, and `dpi` values matching the rendered image.
@@ -83,3 +109,14 @@ To manage data volume:
 - [ ] Invalid or corrupted PDF files produce a clear error message, not a crash.
 - [ ] Pages that PDFium cannot render produce a clear error message rather than empty/corrupt image data.
 - [ ] When multiple `RenderPagePreview` calls are invoked in parallel, each call succeeds independently — no crashes or corrupted output from concurrent native library access.
+- [ ] A cancelled rendering request that is waiting for the serialized rendering engine returns promptly without blocking.
+- [ ] Error messages for file access and invalid PDF errors are consistent with the patterns defined in FRD-007, despite using a different underlying engine (Docnet vs. PdfPig).
+- [ ] A rendering request at maximum DPI (600) that fails due to memory constraints returns a clear error, not a server crash.
+
+### Raw BGRA Buffer API
+- [ ] The raw render method returns a BGRA pixel buffer with correct width and height for the requested DPI.
+- [ ] The raw render method uses the same serialization semaphore as the primary render method.
+- [ ] The raw render method applies the same input validation (file path, page number, DPI range) as the primary render method.
+- [ ] The raw BGRA buffer length equals `width × height × 4`.
+- [ ] Concurrent calls to the raw render method and the primary render method are safely serialized.
+- [ ] The raw render method supports cancellation — a cancelled call releases resources and returns promptly.

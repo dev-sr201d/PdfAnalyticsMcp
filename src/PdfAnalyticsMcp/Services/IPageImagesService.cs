@@ -4,5 +4,5 @@ namespace PdfAnalyticsMcp.Services;
 
 public interface IPageImagesService
 {
-    PageImagesDto Extract(string pdfPath, int page, bool includeData);
+    Task<PageImagesDto> ExtractAsync(string pdfPath, int page, string? outputPath = null, CancellationToken cancellationToken = default);
 }

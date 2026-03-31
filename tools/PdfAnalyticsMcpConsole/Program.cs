@@ -25,8 +25,8 @@ public static class Program
             var pdfInfoService = new PdfInfoService();
             var pageTextService = new PageTextService(validationService);
             var pageGraphicsService = new PageGraphicsService(validationService);
-            var pageImagesService = new PageImagesService(validationService, NullLogger<PageImagesService>.Instance);
             var renderService = new RenderPagePreviewService(validationService, NullLogger<RenderPagePreviewService>.Instance);
+            var pageImagesService = new PageImagesService(validationService, renderService, NullLogger<PageImagesService>.Instance);
 
             var jsonOptions = new JsonSerializerOptions
             {
@@ -47,7 +47,7 @@ public static class Program
                     return RunGetPageGraphics(args, validationService, pageGraphicsService, jsonOptions);
 
                 case "images":
-                    return RunGetPageImages(args, validationService, pageImagesService, jsonOptions);
+                    return await RunGetPageImages(args, validationService, pageImagesService, jsonOptions);
 
                 case "render":
                     return await RunRenderPagePreview(args, validationService, renderService, jsonOptions);
@@ -149,7 +149,7 @@ public static class Program
         return 0;
     }
 
-    private static int RunGetPageImages(
+    private static async Task<int> RunGetPageImages(
         string[] args,
         IInputValidationService validationService,
         IPageImagesService pageImagesService,
@@ -157,7 +157,7 @@ public static class Program
     {
         if (args.Length < 3)
         {
-            Console.Error.WriteLine("Usage: PdfAnalyticsMcpConsole images <pdfPath> <page> [includeData]");
+            Console.Error.WriteLine("Usage: PdfAnalyticsMcpConsole images <pdfPath> <page> [outputPath]");
             return 1;
         }
 
@@ -169,10 +169,10 @@ public static class Program
             return 1;
         }
 
-        bool includeData = args.Length >= 4 && bool.TryParse(args[3], out bool val) && val;
+        string? outputPath = args.Length >= 4 ? args[3] : null;
 
         validationService.ValidateFilePath(pdfPath);
-        var result = pageImagesService.Extract(pdfPath, page, includeData);
+        var result = await pageImagesService.ExtractAsync(pdfPath, page, outputPath);
         Console.WriteLine(JsonSerializer.Serialize(result, jsonOptions));
         return 0;
     }
@@ -318,7 +318,7 @@ public static class Program
               info      <pdfPath>                          Get PDF document metadata
               text      <pdfPath> <page> [granularity]     Get page text (granularity: words|letters, default: words)
               graphics  <pdfPath> <page>                   Get classified page graphics (rectangles, lines, paths)
-              images    <pdfPath> <page> [includeData]     Get page images (includeData: true|false, default: false)
+              images    <pdfPath> <page> [outputPath]      Get page images (outputPath: directory for PNG extraction)
               render    <pdfPath> <page> [dpi]             Render page as PNG (dpi: 72-600, default: 150)
 
             Examples:
@@ -327,7 +327,7 @@ public static class Program
               PdfAnalyticsMcpConsole text "C:\docs\report.pdf" 3 letters
               PdfAnalyticsMcpConsole graphics "C:\docs\report.pdf" 2
               PdfAnalyticsMcpConsole images "C:\docs\report.pdf" 1
-              PdfAnalyticsMcpConsole images "C:\docs\report.pdf" 1 true
+              PdfAnalyticsMcpConsole images "C:\docs\report.pdf" 1 "C:\output"
               PdfAnalyticsMcpConsole render "C:\docs\report.pdf" 1
               PdfAnalyticsMcpConsole render "C:\docs\report.pdf" 1 300
             """);

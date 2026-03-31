@@ -1,14 +1,16 @@
-# Task 015: RenderPagePreview Service and DTO
+# Task 013: RenderPagePreview Service and DTO
 
 ## Description
 
-Create the data transfer object and rendering service for the `RenderPagePreview` tool (FRD-006). The service uses Docnet's scaling factor API to render a single PDF page at a configurable DPI, then encodes the raw BGRA pixel output to PNG using the encoder from Task 014. The service returns a result DTO containing the rendered PNG bytes and rendering metadata. This service operates independently of PdfPig.
+Create the data transfer objects and rendering service for the `RenderPagePreview` tool (FRD-005). The service uses Docnet's scaling factor API to render a single PDF page at a configurable DPI, then encodes the raw BGRA pixel output to PNG using the encoder from Task 012. The service returns a result DTO containing the rendered PNG bytes and rendering metadata. This service operates independently of PdfPig.
+
+The service also exposes a raw BGRA buffer API (`RenderRawAsync`) that returns the unencoded pixel buffer for internal use by other features (e.g., the render-based image extraction fallback in FRD-006 / Task 015). Both methods share the same semaphore, validation, and error handling.
 
 Because Docnet wraps the native PDFium library which is **not thread-safe**, the service must serialize all access to `DocLib.Instance` using a static `SemaphoreSlim(1, 1)`. The rendering method must accept a `CancellationToken` so that callers queued behind the semaphore can be cancelled by the MCP client.
 
 ## Traces To
 
-- **FRD:** FRD-006 (Page Rendering Preview — RenderPagePreview)
+- **FRD:** FRD-005 (Page Rendering — RenderPagePreview), Functional Requirements 1–17
 - **PRD:** REQ-5 (Page rendering), REQ-7 (Page-by-page processing), REQ-8 (Robust error handling), REQ-10 (Concurrent tool safety)
 - **ADRs:** ADR-0004 (Docnet/PDF rendering)
 
@@ -16,7 +18,7 @@ Because Docnet wraps the native PDFium library which is **not thread-safe**, the
 
 - **Task 001** — Solution and project scaffolding (complete)
 - **Task 005** — Input validation service: `IInputValidationService` (complete)
-- **Task 014** — BGRA-to-PNG encoder utility (must be complete before this task)
+- **Task 012** — BGRA-to-PNG encoder utility (must be complete before this task)
 
 ## Technical Requirements
 
@@ -42,13 +44,28 @@ Define a response DTO in the `Models/` directory as an immutable `record` type:
 
 > **Note:** This DTO is not serialized to JSON directly. The tool layer uses it to construct an `ImageContentBlock` (from the PNG bytes) and a `TextContentBlock` (from the metadata fields). The `pngData` field is never included in JSON output.
 
+**Raw render result** — Contains the unencoded pixel buffer for internal use by other features (FRD-005 requirements 14–16):
+- `width` (int) — Rendered image width in pixels
+- `height` (int) — Rendered image height in pixels
+- `bgraData` (byte[]) — Raw BGRA pixel data as returned by Docnet (transparent alpha intact; caller is responsible for compositing and encoding)
+
+> **Note:** This DTO is internal to the service layer. The raw BGRA buffer is consumed by the image extraction fallback (Task 015), not by the MCP tool directly.
+
 ### Service Interface
 
-Define a service interface `IRenderPagePreviewService` in `Services/` with a method that:
+Define a service interface `IRenderPagePreviewService` in `Services/` with two methods:
+
+**`RenderAsync`** (primary — used by the MCP tool):
 - Accepts a file path (string), a 1-based page number (int), a DPI value (int), and a `CancellationToken`
-- Returns the render page preview result DTO (can be `Task<RenderPagePreviewResult>` to support async semaphore waiting)
+- Returns the render page preview result DTO (`Task<RenderPagePreviewResult>`)
 - Throws `ArgumentException` for validation failures (invalid page, invalid DPI, unopenable file)
 - Throws `OperationCanceledException` if the cancellation token is triggered while waiting for the semaphore
+
+**`RenderRawAsync`** (internal — used by image extraction fallback, FRD-005 requirement 14):
+- Accepts the same parameters as `RenderAsync`: file path (string), 1-based page number (int), DPI value (int), and `CancellationToken`
+- Returns the raw render result DTO (`Task<RenderRawResult>`) containing the BGRA pixel buffer, width, and height — **not** PNG-encoded
+- Uses the same semaphore, validation, Docnet lifecycle, and error handling as `RenderAsync` (FRD-005 requirement 15)
+- Returns the raw BGRA buffer as-is from Docnet with transparent alpha intact (FRD-005 requirement 16)
 
 ### Service Implementation — `RenderPagePreviewService`
 
@@ -69,9 +86,19 @@ The service must:
 6. **Retrieve rendered pixel dimensions** from `pageReader.GetPageWidth()` and `pageReader.GetPageHeight()`.
 7. **Get the raw BGRA pixel data** from `pageReader.GetImage()`.
 8. **Validate the pixel data** — If `GetImage()` returns null or an empty array, throw `ArgumentException` indicating the page could not be rendered.
-9. **Encode to PNG** using the BGRA-to-PNG encoder utility from Task 014, passing the raw pixel data, width, and height.
+9. **Encode to PNG** using the BGRA-to-PNG encoder utility from Task 012, passing the raw pixel data, width, and height.
 10. **Release the semaphore** — In the `finally` block after all Docnet operations complete.
 11. **Return the result DTO** with page number, DPI, pixel dimensions, and encoded PNG bytes.
+
+### `RenderRawAsync` Implementation
+
+This method shares the same semaphore, validation, and Docnet lifecycle as `RenderAsync` (FRD-005 requirement 15). The implementation may either:
+- Duplicate the rendering pipeline (validate → acquire semaphore → open doc → get page → get image → release semaphore) and return the raw BGRA buffer plus dimensions without calling `PngEncoder.Encode`, or
+- Extract the shared rendering pipeline into a private helper method that both `RenderAsync` and `RenderRawAsync` delegate to, with `RenderAsync` additionally encoding to PNG.
+
+Either approach is acceptable as long as both methods share the same semaphore and error handling (FRD-005 requirement 17).
+
+The raw BGRA buffer is returned as-is from Docnet with the transparent alpha channel intact (FRD-005 requirement 16). The caller (image extraction service) is responsible for any alpha compositing and PNG encoding of cropped regions.
 
 > **Concurrency note:** The static semaphore ensures that only one thread at a time can use PDFium's native library, preventing `AccessViolationException` and memory corruption. The semaphore is `static` because the constraint is process-wide (there is only one `DocLib.Instance`). Fast validations (DPI range, file path) should execute before the semaphore to avoid unnecessary queuing.
 
@@ -115,6 +142,11 @@ No new test PDF generation is required.
 - [ ] All Docnet/PDFium operations are serialized through a static `SemaphoreSlim(1, 1)`, acquired before any `DocLib.Instance` call and released in a `finally` block.
 - [ ] The rendering method accepts a `CancellationToken` that is passed to `SemaphoreSlim.WaitAsync()`, allowing queued callers to be cancelled.
 - [ ] Fast validations (DPI range, file path existence) execute before acquiring the semaphore.
+- [ ] `RenderRawAsync` returns a raw BGRA pixel buffer with the correct width, height, and buffer length (`width × height × 4`).
+- [ ] `RenderRawAsync` uses the same static semaphore as `RenderAsync`.
+- [ ] `RenderRawAsync` applies the same validation (DPI range, file path, page number) as `RenderAsync`.
+- [ ] `RenderRawAsync` does not call `PngEncoder.Encode` — it returns the raw Docnet output.
+- [ ] `RenderRawAsync` returns the BGRA buffer with the transparent alpha channel intact (not composited against white).
 - [ ] The service is registered in `Program.cs` DI container.
 
 ## Testing Requirements
@@ -136,3 +168,6 @@ Unit tests must validate the service's rendering, validation, and error handling
 11. **Page beyond count** — Call with a page number beyond the document's page count. Verify `ArgumentException` is thrown.
 12. **Invalid PDF file** — Call with `not-a-pdf.txt`. Verify `ArgumentException` is thrown with a message about the file not being renderable.
 13. **PNG data validity** — Verify the returned PNG data contains a valid IHDR chunk whose width and height match the DTO's width and height fields.
+14. **RenderRawAsync returns raw BGRA** — Call `RenderRawAsync` on a known test PDF at 150 DPI. Verify the returned buffer length equals `width × height × 4` and that the width and height are plausible for the test PDF at that DPI.
+15. **RenderRawAsync validation** — Call `RenderRawAsync` with DPI=50 (below range). Verify `ArgumentException` is thrown. Call with page=0. Verify `ArgumentException` is thrown. This confirms the raw method shares the same validation.
+16. **RenderRawAsync does not encode PNG** — Call `RenderRawAsync` and verify the returned `bgraData` does **not** start with the PNG signature bytes. This confirms raw buffer output, not PNG.

@@ -191,4 +191,44 @@ public class RenderPagePreviewServiceTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => _service.RenderAsync(path, 1, 150, cts.Token));
     }
+
+    [Fact]
+    public async Task RenderRaw_ReturnsCorrectBgraBuffer()
+    {
+        var path = GetTestDataPath("sample-with-metadata.pdf");
+        var result = await _service.RenderRawAsync(path, 1, 150);
+
+        Assert.True(result.Width > 0);
+        Assert.True(result.Height > 0);
+        Assert.InRange(result.Width, 1270, 1280);
+        Assert.InRange(result.Height, 1645, 1655);
+        Assert.Equal(result.Width * result.Height * 4, result.BgraData.Length);
+    }
+
+    [Theory]
+    [InlineData(50)]
+    [InlineData(700)]
+    public async Task RenderRaw_InvalidDpi_ThrowsArgumentException(int dpi)
+    {
+        var path = GetTestDataPath("sample-with-metadata.pdf");
+        await Assert.ThrowsAsync<ArgumentException>(() => _service.RenderRawAsync(path, 1, dpi));
+    }
+
+    [Fact]
+    public async Task RenderRaw_PageZero_ThrowsArgumentException()
+    {
+        var path = GetTestDataPath("sample-with-metadata.pdf");
+        await Assert.ThrowsAsync<ArgumentException>(() => _service.RenderRawAsync(path, 0, 150));
+    }
+
+    [Fact]
+    public async Task RenderRaw_DoesNotReturnPngEncodedData()
+    {
+        var path = GetTestDataPath("sample-with-metadata.pdf");
+        var result = await _service.RenderRawAsync(path, 1, 150);
+
+        // Raw BGRA buffer must NOT start with the PNG signature
+        Assert.True(result.BgraData.Length >= 8);
+        Assert.NotEqual(PngSignature, result.BgraData[..8]);
+    }
 }

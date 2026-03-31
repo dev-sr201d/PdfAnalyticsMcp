@@ -91,7 +91,7 @@ public class PageGraphicsService(IInputValidationService validationService) : IP
                     }
                 }
             }
-            catch (Exception ex) when (ex is not ArgumentException)
+            catch (Exception ex) when (ex is not ArgumentException and not OperationCanceledException)
             {
                 throw new ArgumentException($"An error occurred extracting graphics from page {page}.");
             }

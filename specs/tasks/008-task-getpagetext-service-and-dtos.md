@@ -4,11 +4,18 @@
 
 Create the data transfer objects and extraction service for the `GetPageText` tool (FRD-003). This task provides the core logic that extracts text content from a single PDF page with full positional and stylistic metadata, supporting both word-level and letter-level granularity. The service derives font name, font size, and color from PdfPig's constituent `Letter` objects, and infers bold/italic flags heuristically from font name patterns.
 
+## Traces To
+
+- **FRD:** FRD-003 (Page Text Extraction — GetPageText)
+- **PRD:** REQ-2 (Rich text extraction), REQ-6 (Data volume management), REQ-7 (Page-by-page processing)
+- **ADRs:** ADR-0002 (PdfPig), ADR-0005 (Serialization)
+
 ## Dependencies
 
 - **Task 001** — Solution and project scaffolding (complete)
 - **Task 004** — Shared serialization configuration: `SerializerConfig`, `FormatUtils` (complete)
 - **Task 005** — Input validation service: `IInputValidationService` (complete)
+- **Task 006** — GetPdfInfo service and DTOs (complete — adds the `PdfPig` NuGet package to the project)
 
 ## Technical Requirements
 

@@ -8,4 +8,4 @@ public record ImageElementDto(
     int PixelWidth,
     int PixelHeight,
     int BitsPerComponent,
-    string? Data);
+    string? File);

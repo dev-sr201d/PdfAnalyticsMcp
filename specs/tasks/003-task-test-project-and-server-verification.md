@@ -53,11 +53,39 @@ Tests that skip this handshake will fail at the protocol level.
 - Use a reasonable timeout (e.g., 10 seconds) for all operations to prevent tests from hanging.
 - Tests must be deterministic and not depend on external state.
 
+### Integration Test Base Class
+
+Create an abstract base class `McpIntegrationTestBase` in the test project to provide shared infrastructure for all integration tests in this and subsequent tasks.
+
+- **File:** `tests/PdfAnalyticsMcp.Tests/McpIntegrationTestBase.cs`
+- **Inherits:** `IDisposable`
+- **Constructor responsibilities:**
+  1. Locate the server executable via a private `GetServerExePath()` method (walks up from `AppContext.BaseDirectory` to the repo root).
+  2. Launch the server as a child `Process` with stdin/stdout/stderr redirected.
+  3. Begin async stderr capture into a `StringBuilder`.
+- **Dispose responsibilities:** Close stdin, wait up to 5 seconds for exit, force-kill if needed, then dispose the process.
+- **Protected helper methods:**
+  - `PerformHandshakeAsync()` — sends the MCP `initialize` request (protocol version `2024-11-05`) and `notifications/initialized` notification.
+  - `CallToolAsync(string toolName, object arguments, TimeSpan? timeout = null)` — sends a `tools/call` JSON-RPC request and reads the response. Default timeout 30 seconds.
+  - `GetToolResultContent(JsonDocument response)` — extracts the first text content block from a tool response.
+  - `CreateJsonRpcRequest(string method, object? @params)` — builds a JSON-RPC request string with auto-incrementing ID.
+  - `CreateJsonRpcNotification(string method)` — builds a JSON-RPC notification string (no ID).
+  - `SendMessageAsync(string message)` — writes a line to the server's stdin and flushes.
+  - `ReadResponseAsync(TimeSpan timeout)` — reads a line from stdout with cancellation, parses as `JsonDocument`.
+  - `GetTestDataPath(string fileName)` — resolves the absolute path to a file in `tests/TestData/`.
+- **Protected properties:**
+  - `StderrOutput` (`string`) — returns captured stderr text (for server lifecycle tests).
+  - `ServerProcess` (`Process`) — exposes the child process (for shutdown/exit tests).
+
+`McpServerIntegrationTests` inherits from `McpIntegrationTestBase`. It keeps its unique `WaitForExitAsync` helper but delegates all process lifecycle, handshake, and protocol helpers to the base class. All subsequent integration test classes (Task 007+) also inherit from `McpIntegrationTestBase`.
+
 ## Acceptance Criteria
 
 - [ ] `tests/PdfAnalyticsMcp.Tests/PdfAnalyticsMcp.Tests.csproj` exists, targets `net9.0`, references xUnit, and is included in the solution.
 - [ ] The test project has a project reference to `src/PdfAnalyticsMcp`.
 - [ ] `tests/TestData/` directory exists.
+- [ ] `McpIntegrationTestBase` abstract base class exists with process lifecycle, handshake, and helper methods.
+- [ ] `McpServerIntegrationTests` inherits from `McpIntegrationTestBase`.
 - [ ] An integration test verifies that the server process starts without errors.
 - [ ] An integration test verifies that a `tools/list` request (after the MCP `initialize` handshake) returns a valid response containing the placeholder tool.
 - [ ] An integration test verifies that the server exits cleanly when stdin is closed.

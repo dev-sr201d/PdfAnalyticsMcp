@@ -16,7 +16,7 @@ The primary users are **AI agents** (LLM-based systems) that consume MCP tools, 
 - Document-level metadata retrieval (page count, dimensions, title, author, bookmarks/outline)
 - Page-level text extraction with position, font, size, color, and configurable granularity
 - Page-level graphics extraction — classification of drawn paths into rectangles, lines, and complex shapes with fill/stroke properties
-- Page-level embedded image extraction with bounding boxes and optional base64-encoded image data
+- Page-level embedded image extraction with bounding boxes and optional file-based PNG extraction to disk
 - Optional page rendering to PNG for visual layout analysis by multimodal AI models
 - Page-by-page processing model to manage data volume
 - Server-side classification and summarization of raw PDF data to keep responses within practical size limits
@@ -62,7 +62,7 @@ The primary users are **AI agents** (LLM-based systems) that consume MCP tools, 
 
 - [REQ-3] **Graphics extraction and classification** — The server must provide a tool that returns all drawn graphic elements on a specified page, classified into meaningful shapes: filled/stroked rectangles (with bounds, fill color, stroke color, stroke width), lines (start/end points, stroke color, width, dash pattern), and complex paths (bounding box and vertex count). Vertex count is provided instead of a full vertex list to manage payload size for complex shapes. This is essential for identifying table borders, sidebars, callout boxes, section dividers, and background fills.
 
-- [REQ-4] **Image extraction** — The server must provide a tool that returns embedded images on a specified page, including each image's bounding box (position and size on the page), pixel dimensions, and bits per component. The tool must support an option to include the actual image data as a base64-encoded PNG.
+- [REQ-4] **Image extraction** — The server must provide a tool that returns embedded images on a specified page, including each image's bounding box (position and size on the page), pixel dimensions, and bits per component. The tool must support an optional output directory parameter; when provided, the tool extracts each image as a PNG file to disk using a deterministic naming convention (based on the PDF filename, page number, and image index) and includes the file paths in the response. Image data is never returned inline — it is always written to disk when requested, keeping MCP responses small. When direct PNG conversion from the PDF image stream is not possible, the tool must use an alternative extraction method (rendering the page and cropping the image region) to maximize the number of images for which files can be provided. The extraction method must be transparent to the agent — the result is a PNG file regardless of how it was produced.
 
 - [REQ-5] **Page rendering** — The server must provide a tool that renders a specified page as a PNG image at a configurable DPI, enabling multimodal AI models to visually inspect the page layout. This capability may rely on an external rendering dependency.
 
@@ -98,8 +98,8 @@ so that I can understand text flow around images and include image references in
 ```
 
 ```gherkin
-As an AI agent, I want to optionally receive image data as base64-encoded PNGs,
-so that I can embed or save images when converting a PDF to another format.
+As an AI agent, I want to optionally extract images to an output directory as PNG files,
+so that I can reference or embed them when converting a PDF to another format.
 ```
 
 ```gherkin

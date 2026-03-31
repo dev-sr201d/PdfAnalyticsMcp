@@ -25,7 +25,7 @@ Use **System.Text.Json** (built into .NET) to serialize tool responses as JSON. 
 - Round coordinate values to 1 decimal place (0.1 PDF points ≈ 0.0014 inches — sufficient precision for layout analysis).
 - Encode colors as hex strings (`"#RRGGBB"`) rather than separate R/G/B integer properties.
 - Disable indentation (`WriteIndented = false`) — saves bytes on large responses; agents don't need pretty-printed JSON.
-- Return image data as base64-encoded PNG strings only when explicitly requested (`includeData = true`).
+- When image extraction is requested, write image data as PNG files to a caller-specified output directory rather than encoding inline. See FRD-006 for the `outputPath` parameter design.
 
 ### File-based output for large responses
 
