@@ -15,7 +15,7 @@ The server exposes five tools, each operating on a single page (except `GetPdfIn
 | **GetPdfInfo** | Page count, dimensions, title, author, subject, keywords, creator, producer, and the full bookmark/outline tree. |
 | **GetPageText** | Text with bounding boxes, font name, font size, color, bold/italic flags. Supports `words` (default) or `letters` granularity. Optional `outputFile` writes CSV to disk for large pages. |
 | **GetPageGraphics** | Classified vector shapes — rectangles, lines, and complex paths with fill/stroke colors, stroke width, and dash patterns. Useful for identifying table gridlines, sidebars, and dividers. |
-| **GetPageImages** | Embedded image bounding boxes and pixel dimensions. Optionally includes base64-encoded PNG data. |
+| **GetPageImages** | Embedded image bounding boxes and pixel dimensions. Optional `outputPath` extracts images as PNG files to disk, with render-based fallback for formats PdfPig can't convert directly. |
 | **RenderPagePreview** | Renders a page as a PNG image at configurable DPI (72–600). Returns the image directly for multimodal models to inspect visually. |
 
 ## Prerequisites
@@ -101,7 +101,7 @@ Once connected, an agent can:
 1. **Get document structure** — call `GetPdfInfo` to learn page count, dimensions, and bookmarks.
 2. **Extract text with metadata** — call `GetPageText` on a page to get every word with its position, font, size, and color. Use font patterns to identify headings, body text, and table headers.
 3. **Understand page layout** — call `GetPageGraphics` to find table borders, shaded regions, and dividers that define the visual structure.
-4. **Inspect images** — call `GetPageImages` to locate embedded images and understand text flow around them.
+4. **Inspect images** — call `GetPageImages` to locate embedded images and understand text flow around them. Provide an `outputPath` to extract images as PNG files for embedding in converted documents.
 5. **Visually verify** — call `RenderPagePreview` to get a PNG of the page and confirm structural understanding.
 
 ## PDF Converter Agents
