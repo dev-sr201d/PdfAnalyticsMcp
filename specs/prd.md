@@ -64,7 +64,7 @@ The primary users are **AI agents** (LLM-based systems) that consume MCP tools, 
 
 - [REQ-4] **Image extraction** — The server must provide a tool that returns embedded images on a specified page, including each image's bounding box (position and size on the page), pixel dimensions, and bits per component. The tool must support an optional output directory parameter; when provided, the tool extracts each image as a PNG file to disk using a deterministic naming convention (based on the PDF filename, page number, and image index) and includes the file paths in the response. Image data is never returned inline — it is always written to disk when requested, keeping MCP responses small. When direct PNG conversion from the PDF image stream is not possible, the tool must use an alternative extraction method (rendering the page and cropping the image region) to maximize the number of images for which files can be provided. The extraction method must be transparent to the agent — the result is a PNG file regardless of how it was produced.
 
-- [REQ-5] **Page rendering** — The server must provide a tool that renders a specified page as a PNG image at a configurable DPI, enabling multimodal AI models to visually inspect the page layout. This capability may rely on an external rendering dependency.
+- [REQ-5] **Page rendering** — The server must provide a tool that renders a specified page as an image at a configurable DPI, enabling multimodal AI models to visually inspect the page layout. The tool must support both PNG and JPEG output formats so the agent can choose the best trade-off between lossless fidelity and file size. The tool must support a quality parameter that controls JPEG compression level, allowing agents to further reduce image size when lossless precision is not needed (e.g., layout verification of pages with large multi-colored images). This capability may rely on an external rendering dependency.
 
 - [REQ-6] **Data volume management** — The server must default to the most practical granularity level (words, not letters) and classify graphics server-side (rather than returning raw operations). Response sizes must remain practical for LLM consumption. Server-side classification into rectangles, lines, and complex paths (with vertex counts rather than full vertex lists) provides sufficient data reduction for most pages. For dense pages that exceed the inline size target, tools may support an optional file-based output mode (see REQ-2) to offload the full payload to disk while returning a compact summary inline.
 
@@ -103,8 +103,8 @@ so that I can reference or embed them when converting a PDF to another format.
 ```
 
 ```gherkin
-As an AI agent, I want to render a page as a PNG preview,
-so that I can visually verify my structural understanding of a complex layout.
+As an AI agent, I want to render a page as an image preview in PNG or JPEG format with configurable quality,
+so that I can visually verify my structural understanding of a complex layout while keeping file sizes within endpoint limits.
 ```
 
 ```gherkin

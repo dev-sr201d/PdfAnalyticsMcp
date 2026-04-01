@@ -26,6 +26,7 @@ This document synthesizes the project requirements (PRD), architecture decisions
 | PDF Parsing | PdfPig (`UglyToad.PdfPig`) | Latest stable | ADR-0002 |
 | MCP Server SDK | Official C# SDK (`ModelContextProtocol`) | Latest stable | ADR-0003 |
 | PDF Rendering | Docnet (`Docnet.Core`) | Latest stable | ADR-0004 |
+| JPEG Encoding | SkiaSharp (`SkiaSharp`) | Latest stable | ADR-0004 |
 | Serialization | `System.Text.Json` (built-in) | — | ADR-0005 |
 | Hosting | `Microsoft.Extensions.Hosting` | — | ADR-0003 |
 
@@ -76,7 +77,7 @@ The server exposes five tools, each operating on a single PDF page (except `GetP
 | `GetPdfInfo` | Page count, dimensions, title, author, subject, keywords, creator, producer, bookmarks | REQ-1 |
 | `GetPageText` | Text with position, font, size, color; `words` or `letters` granularity; optional `outputFile` for large pages | REQ-2 |
 | `GetPageGraphics` | Classified shapes: rectangles, lines, paths with fill/stroke/color | REQ-3 |
-| `RenderPagePreview` | Full page rendered as PNG at configurable DPI | REQ-5 |
+| `RenderPagePreview` | Full page rendered as PNG or JPEG at configurable DPI and quality | REQ-5 |
 | `GetPageImages` | Image bounding boxes, dimensions; optional file-based PNG extraction to disk with render-based fallback for unsupported image formats | REQ-4 |
 
 ---
@@ -220,8 +221,10 @@ byte[] rawBytes = pageReader.GetImage(); // BGRA format
 ### Key Rules
 
 - Docnet page numbers are **0-based** — subtract 1 from the user-facing 1-based page number.
-- `GetImage()` returns raw **BGRA pixel data** (4 bytes per pixel), not an encoded image. You must encode to PNG before returning to the agent.
-- Use a lightweight PNG encoder — a manual PNG writer using `System.IO.Compression.ZLibStream` (built into .NET 6+) is sufficient. Avoid pulling in large imaging libraries like `System.Drawing` (Windows-only) or full `ImageSharp` (heavy).
+- `GetImage()` returns raw **BGRA pixel data** (4 bytes per pixel), not an encoded image. You must encode to PNG or JPEG before returning to the agent.
+- For **PNG encoding**, use a lightweight manual PNG writer using `System.IO.Compression.ZLibStream` (built into .NET 6+). No external imaging library needed.
+- For **JPEG encoding**, use **SkiaSharp** (`SKImage.Encode(SKEncodedImageFormat.Jpeg, quality)`). SkiaSharp wraps libjpeg-turbo for high-quality compression with a direct 1–100 quality mapping. See ADR-0004.
+- Both encoders must composite the BGRA alpha channel against a white background before encoding, producing opaque output. This matches standard PDF viewer behavior.
 - Use `PageDimensions(double scalingFactor)` where `scalingFactor = dpi / 72.0`. This directly achieves the desired rendering DPI without needing to know the page's intrinsic point dimensions upfront, which eliminates any dependency on PdfPig for rendering. Default to 150 DPI — a good balance between visual clarity and data size. A typical US Letter page at 150 DPI produces a ~1275×1650 pixel image.
 - Docnet has **native dependencies** (PDFium binaries) bundled per platform in the NuGet package. These are auto-selected at runtime — no manual configuration needed.
 - Dispose `IDocReader` and `IPageReader` via `using` — they hold native resources.
