@@ -21,7 +21,7 @@ public class PdfInfoServiceTests
         var path = GetTestDataPath("sample-with-metadata.pdf");
         var result = _service.Extract(path);
 
-        Assert.Equal(2, result.PageCount);
+        Assert.Equal(3, result.PageCount);
         Assert.Equal("Test Document", result.Title);
         Assert.Equal("Test Author", result.Author);
         Assert.Equal("Test Subject", result.Subject);
@@ -31,23 +31,31 @@ public class PdfInfoServiceTests
     }
 
     [Fact]
-    public void Extract_WithMetadata_ReturnsCorrectPageDimensions()
+    public void Extract_WithMetadata_ReturnsPredominantDimensionsAndExceptions()
     {
         var path = GetTestDataPath("sample-with-metadata.pdf");
         var result = _service.Extract(path);
 
-        Assert.Equal(2, result.Pages.Count);
+        // Predominant is US Letter (612 x 792) — 2 of 3 pages
+        Assert.Equal(612.0, result.PredominantPageWidth);
+        Assert.Equal(792.0, result.PredominantPageHeight);
 
-        // Page 1: Letter (612 x 792)
-        Assert.Equal(1, result.Pages[0].Number);
-        Assert.Equal(612.0, result.Pages[0].Width);
-        Assert.Equal(792.0, result.Pages[0].Height);
+        // Page 3 is A4 — should appear as the sole exception
+        Assert.NotNull(result.PageSizeExceptions);
+        Assert.Single(result.PageSizeExceptions);
+        Assert.Equal(3, result.PageSizeExceptions[0].Number);
+        Assert.Equal(595.0, result.PageSizeExceptions[0].Width);
+        Assert.Equal(842.0, result.PageSizeExceptions[0].Height);
+    }
 
-        // Page 2: A4 (595.28 x 841.89 -> should be rounded)
-        Assert.Equal(2, result.Pages[1].Number);
-        // A4 dimensions from PdfPig are exactly 595 x 842 based on verification
-        Assert.Equal(595.0, result.Pages[1].Width);
-        Assert.Equal(842.0, result.Pages[1].Height);
+    [Fact]
+    public void Extract_UniformPageSizes_ReturnsNullExceptions()
+    {
+        var path = GetTestDataPath("sample-with-bookmarks.pdf");
+        var result = _service.Extract(path);
+
+        // Both pages are same size — no exceptions
+        Assert.Null(result.PageSizeExceptions);
     }
 
     [Fact]
@@ -85,17 +93,17 @@ public class PdfInfoServiceTests
         // Chapter 1 with child
         var chapter1 = result.Bookmarks[0];
         Assert.Equal("Chapter 1", chapter1.Title);
-        Assert.Equal(1, chapter1.PageNumber);
+        Assert.Equal(1, chapter1.Page);
         Assert.NotNull(chapter1.Children);
         Assert.Single(chapter1.Children);
         Assert.Equal("Section 1.1", chapter1.Children[0].Title);
-        Assert.Equal(1, chapter1.Children[0].PageNumber);
+        Assert.Equal(1, chapter1.Children[0].Page);
         Assert.Null(chapter1.Children[0].Children);
 
         // Chapter 2 without children
         var chapter2 = result.Bookmarks[1];
         Assert.Equal("Chapter 2", chapter2.Title);
-        Assert.Equal(2, chapter2.PageNumber);
+        Assert.Equal(2, chapter2.Page);
         Assert.Null(chapter2.Children);
     }
 
@@ -136,5 +144,6 @@ public class PdfInfoServiceTests
         Assert.DoesNotContain("\"title\"", json);
         Assert.DoesNotContain("\"author\"", json);
         Assert.DoesNotContain("\"bookmarks\"", json);
+        Assert.DoesNotContain("\"pageSizeExceptions\"", json);
     }
 }

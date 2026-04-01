@@ -2,7 +2,9 @@ namespace PdfAnalyticsMcp.Models;
 
 public record PdfInfoDto(
     int PageCount,
-    IReadOnlyList<PageInfoDto> Pages,
+    double PredominantPageWidth,
+    double PredominantPageHeight,
+    IReadOnlyList<PageSizeExceptionDto>? PageSizeExceptions,
     string? Title,
     string? Author,
     string? Subject,

@@ -61,13 +61,14 @@ Write integration tests that launch the server as a child process and communicat
 Required test scenarios:
 
 1. **Tool discovery** — `tools/list` returns `GetPdfInfo` with its parameter schema and description.
-2. **Valid PDF metadata** — Calling `GetPdfInfo` with a valid sample PDF returns correct page count, page dimensions, and metadata fields as JSON.
-3. **PDF with bookmarks** — Calling `GetPdfInfo` on a PDF with bookmarks returns the hierarchical bookmark tree.
-4. **PDF without bookmarks** — Calling `GetPdfInfo` on a PDF without bookmarks omits the `bookmarks` field from the response.
-5. **Missing file** — Calling `GetPdfInfo` with a nonexistent path returns an error result with "File not found" message.
-6. **Empty path** — Calling `GetPdfInfo` with an empty `pdfPath` returns an error result with "pdfPath is required."
-7. **Path traversal** — Calling `GetPdfInfo` with a path containing `..` returns an error result with "Invalid file path."
-8. **Invalid PDF file** — Calling `GetPdfInfo` with a non-PDF file returns "The file could not be opened as a PDF."
+2. **Valid PDF metadata** — Calling `GetPdfInfo` with a valid sample PDF returns correct page count, predominant page dimensions, page-size exceptions, and metadata fields as JSON.
+3. **Uniform page sizes** — Calling `GetPdfInfo` on a PDF where all pages share the same size (e.g., `sample-with-bookmarks.pdf`) omits the `pageSizeExceptions` field from the response.
+4. **PDF with bookmarks** — Calling `GetPdfInfo` on a PDF with bookmarks returns the hierarchical bookmark tree.
+5. **PDF without bookmarks** — Calling `GetPdfInfo` on a PDF without bookmarks omits the `bookmarks` field from the response.
+6. **Missing file** — Calling `GetPdfInfo` with a nonexistent path returns an error result with "File not found" message.
+7. **Empty path** — Calling `GetPdfInfo` with an empty `pdfPath` returns an error result with "pdfPath is required."
+8. **Path traversal** — Calling `GetPdfInfo` with a path containing `..` returns an error result with "Invalid file path."
+9. **Invalid PDF file** — Calling `GetPdfInfo` with a non-PDF file returns "The file could not be opened as a PDF."
 
 ### Test Data
 
@@ -82,7 +83,8 @@ Required test scenarios:
 - [ ] The PingTool placeholder has been removed.
 - [ ] The input validation service and metadata extraction service are registered in `Program.cs`.
 - [ ] Integration test: `tools/list` includes `GetPdfInfo` with its parameter schema.
-- [ ] Integration test: Valid PDF returns correct metadata as JSON.
+- [ ] Integration test: Valid PDF returns correct metadata as JSON (predominant dimensions and page-size exceptions).
+- [ ] Integration test: PDF where all pages are the same size omits `pageSizeExceptions`.
 - [ ] Integration test: PDF with bookmarks returns hierarchical bookmark tree.
 - [ ] Integration test: PDF without bookmarks omits the `bookmarks` field.
 - [ ] Integration test: Nonexistent file path returns an error with "File not found."

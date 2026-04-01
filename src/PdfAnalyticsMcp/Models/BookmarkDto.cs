@@ -2,5 +2,5 @@ namespace PdfAnalyticsMcp.Models;
 
 public record BookmarkDto(
     string Title,
-    int? PageNumber,
+    int? Page,
     IReadOnlyList<BookmarkDto>? Children);

@@ -383,6 +383,43 @@ public static class TestPdfGenerator
     }
 
     /// <summary>
+    /// Creates a PDF with metadata fields and 3 pages: 2 US Letter (612×792) + 1 A4 (595×842).
+    /// This ensures US Letter is the predominant size and the A4 page appears as a page-size exception.
+    /// Overwrites any existing file.
+    /// </summary>
+    public static string CreateMetadataTestPdf()
+    {
+        var path = GetTestDataPath("sample-with-metadata.pdf");
+
+        var builder = new PdfDocumentBuilder();
+        builder.DocumentInformation.Title = "Test Document";
+        builder.DocumentInformation.Author = "Test Author";
+        builder.DocumentInformation.Subject = "Test Subject";
+        builder.DocumentInformation.Keywords = "test, pdf, sample";
+        builder.DocumentInformation.Creator = "TestCreator";
+        builder.DocumentInformation.Producer = "TestProducer";
+
+        var helvetica = builder.AddStandard14Font(Standard14Font.Helvetica);
+
+        // Page 1: US Letter
+        var page1 = builder.AddPage(PageSize.Letter);
+        page1.AddText("Page 1 - Letter", 12, new PdfPoint(72, 720), helvetica);
+
+        // Page 2: US Letter
+        var page2 = builder.AddPage(PageSize.Letter);
+        page2.AddText("Page 2 - Letter", 12, new PdfPoint(72, 720), helvetica);
+
+        // Page 3: A4
+        var page3 = builder.AddPage(PageSize.A4);
+        page3.AddText("Page 3 - A4", 12, new PdfPoint(72, 720), helvetica);
+
+        var bytes = builder.Build();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, bytes);
+        return path;
+    }
+
+    /// <summary>
     /// Creates a PDF with multiple embedded images on page 1.
     /// Image 1: 2x2 red PNG at (50, 600) display size 100x80.
     /// Image 2: 2x2 red PNG at (200, 400) display size 150x120.

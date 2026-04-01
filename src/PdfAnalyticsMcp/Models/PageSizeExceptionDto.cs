@@ -1,6 +1,6 @@
 namespace PdfAnalyticsMcp.Models;
 
-public record PageInfoDto(
+public record PageSizeExceptionDto(
     int Number,
     double Width,
     double Height);

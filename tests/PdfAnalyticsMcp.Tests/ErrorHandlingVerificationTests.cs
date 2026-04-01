@@ -199,7 +199,7 @@ public class ErrorHandlingVerificationTests : IDisposable
         await PerformHandshakeAsync();
 
         var pdfPath = GetTestDataPath("sample-with-metadata.pdf");
-        // sample-with-metadata.pdf has 2 pages
+        // sample-with-metadata.pdf has 3 pages
         var messages = new Dictionary<string, string>();
         foreach (var tool in PageLevelTools)
         {
@@ -209,7 +209,7 @@ public class ErrorHandlingVerificationTests : IDisposable
             messages[tool] = ExtractValidationMessage(GetErrorText(response));
         }
 
-        var expected = "Page 99 does not exist. The document has 2 pages.";
+        var expected = "Page 99 does not exist. The document has 3 pages.";
         AssertAllMessagesEqual(expected, messages);
     }
 
@@ -307,7 +307,7 @@ public class ErrorHandlingVerificationTests : IDisposable
         Assert.False(IsErrorResponse(response2));
         var content2 = GetToolResultContent(response2);
         var json2 = JsonDocument.Parse(content2);
-        Assert.Equal(2, json2.RootElement.GetProperty("pageCount").GetInt32());
+        Assert.Equal(3, json2.RootElement.GetProperty("pageCount").GetInt32());
 
         // 3. Call get_page_text with invalid input → expect error
         var response3 = await CallToolAsync("get_page_text",

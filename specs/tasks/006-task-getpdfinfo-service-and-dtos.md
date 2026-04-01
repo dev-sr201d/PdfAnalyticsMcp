@@ -2,7 +2,7 @@
 
 ## Description
 
-Implement the PDF metadata extraction service and its associated response DTOs. This service opens a PDF file using PdfPig, extracts document-level metadata (page count, page dimensions, title, author, subject, keywords, creator, producer), and the bookmarks/outline tree. It returns the data as structured DTOs ready for JSON serialization.
+Implement the PDF metadata extraction service and its associated response DTOs. This service opens a PDF file using PdfPig, extracts document-level metadata (page count, predominant page dimensions with exceptions, title, author, subject, keywords, creator, producer), and the bookmarks/outline tree. It returns the data as structured DTOs ready for JSON serialization.
 
 ## Traces To
 
@@ -34,7 +34,9 @@ The response structure must include:
 | Field | Type | Description |
 |-------|------|-------------|
 | `pageCount` | int | Total number of pages |
-| `pages` | array | Per-page info: page number (1-based), width, height in PDF points |
+| `predominantPageWidth` | double | Width (PDF points) of the most common page size, rounded to 1 decimal |
+| `predominantPageHeight` | double | Height (PDF points) of the most common page size, rounded to 1 decimal |
+| `pageSizeExceptions` | array? | Pages whose dimensions differ from the predominant size (null/omitted when all pages share the same size) |
 | `title` | string? | Document title (null if absent) |
 | `author` | string? | Document author (null if absent) |
 | `subject` | string? | Document subject (null if absent) |
@@ -43,7 +45,7 @@ The response structure must include:
 | `producer` | string? | PDF producer (null if absent) |
 | `bookmarks` | array? | Hierarchical bookmark tree (null if none) |
 
-Each page info entry:
+Each page-size exception entry:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -56,7 +58,7 @@ Each bookmark entry (recursive):
 | Field | Type | Description |
 |-------|------|-------------|
 | `title` | string | Bookmark title |
-| `pageNumber` | int? | Target page number (null if bookmark has no page destination) |
+| `page` | int? | Target page number (null if bookmark has no page destination) |
 | `children` | array? | Child bookmarks (null if none) |
 
 ### Metadata Extraction Service
@@ -66,6 +68,7 @@ Each bookmark entry (recursive):
 - If `PdfDocument.Open()` throws (e.g., the file is not a valid PDF or is corrupted), the service must catch the exception and rethrow as `ArgumentException` with message: "The file could not be opened as a PDF." Internal exception details must not be exposed.
 - The `PdfDocument` must be disposed after extraction (via `using` declaration).
 - The document is opened per call — not cached across calls.
+- The service must determine the predominant page size by grouping all pages by their rounded (width, height) and selecting the group with the most pages. If two or more groups tie in count, the group whose first page appears earliest in the document wins. The predominant width and height are returned as `predominantPageWidth` and `predominantPageHeight`. Pages whose dimensions differ from the predominant size are returned in `pageSizeExceptions` with their page number, width, and height. When all pages share the same size, `pageSizeExceptions` must be null (omitted from JSON).
 - Page dimensions must be rounded to 1 decimal place using the shared coordinate rounding utility from Task 004.
 - Metadata string fields must be null when not present in the PDF — never empty strings. If PdfPig returns an empty string for a metadata field, treat it as null.
 - The bookmarks tree must be extracted from PdfPig's document outline/bookmarks API and returned as a nested structure matching the document's hierarchy.
@@ -78,7 +81,7 @@ Each bookmark entry (recursive):
 ### Test Data
 
 - Add three sample PDF files to `tests/TestData/`:
-  1. `sample-with-metadata.pdf` — A PDF with metadata fields populated (title, author, subject, keywords, creator, producer) but no bookmarks. Two pages: one US Letter (612×792) and one A4.
+  1. `sample-with-metadata.pdf` — A PDF with metadata fields populated (title, author, subject, keywords, creator, producer) but no bookmarks. Three pages: two US Letter (612×792) and one A4 — this ensures US Letter is the predominant size and the A4 page appears as a page-size exception.
   2. `sample-no-metadata.pdf` — A single-page PDF with minimal/no metadata and no bookmarks.
   3. `sample-with-bookmarks.pdf` — A two-page PDF with a hierarchical bookmark tree (e.g., "Chapter 1" with child "Section 1.1", and "Chapter 2" without children).
 - These files should be small (1–3 pages). Prefer checking in small static PDF files over programmatic generation — static fixtures are simpler and more reliable for deterministic test assertions.
@@ -86,15 +89,19 @@ Each bookmark entry (recursive):
 ## Acceptance Criteria
 
 - [ ] The `PdfPig` NuGet package is referenced in the server project.
-- [ ] DTO record types exist for the GetPdfInfo response, page info, and bookmark entries.
-- [ ] A metadata extraction service extracts page count, page dimensions, and all metadata fields from a PDF.
+- [ ] DTO record types exist for the GetPdfInfo response, page-size exception, and bookmark entries.
+- [ ] A metadata extraction service extracts page count, predominant page dimensions, page-size exceptions, and all metadata fields from a PDF.
+- [ ] The predominant page size is the (width, height) shared by the most pages.
+- [ ] Pages with dimensions differing from the predominant size are returned in `pageSizeExceptions`.
+- [ ] When all pages share the same size, `pageSizeExceptions` is null (omitted from serialized JSON).
 - [ ] Page dimensions are rounded to 1 decimal place.
 - [ ] Metadata string fields are null (not empty strings) when absent from the PDF.
 - [ ] Bookmarks are returned as a nested hierarchical structure matching the PDF outline.
 - [ ] When a PDF has no bookmarks, the bookmarks field is null (omitted from serialized JSON).
 - [ ] The extraction service is registered in the DI container.
 - [ ] The extraction service catches PdfPig exceptions on file open and rethrows `ArgumentException` with "The file could not be opened as a PDF."
-- [ ] Unit tests verify correct metadata extraction against a sample PDF with known metadata values.
+- [ ] Unit tests verify correct metadata extraction against a sample PDF with known metadata values, including predominant dimensions and page-size exceptions.
+- [ ] Unit tests verify that a PDF where all pages are the same size produces a null `pageSizeExceptions` field.
 - [ ] Unit tests verify a PDF without bookmarks produces a null bookmarks field.
 - [ ] Unit tests verify page dimension rounding.
 - [ ] Unit tests verify that empty metadata strings from PdfPig are converted to null.

@@ -9,7 +9,7 @@ namespace PdfAnalyticsMcp.Tools;
 [McpServerToolType]
 public class GetPdfInfoTool(IInputValidationService validationService, IPdfInfoService pdfInfoService)
 {
-    [McpServerTool, Description("Returns document-level metadata from a PDF file including page count, page dimensions, title, author, and bookmarks/outline tree.")]
+    [McpServerTool, Description("Returns document-level metadata from a PDF file including page count, predominant page dimensions, page-size exceptions, title, author, and bookmarks/outline tree.")]
     public string GetPdfInfo(
         [Description("Absolute path to the PDF file on the local filesystem.")] string pdfPath)
     {

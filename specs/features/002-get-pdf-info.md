@@ -22,23 +22,26 @@ A JSON object containing:
 | Field | Type | Description |
 |-------|------|-------------|
 | `pageCount` | int | Total number of pages in the document |
-| `pages` | array | Per-page info: page number, width, height (in PDF points) |
+| `predominantPageWidth` | double | Width (PDF points) of the most common page size |
+| `predominantPageHeight` | double | Height (PDF points) of the most common page size |
+| `pageSizeExceptions` | array? | Pages whose dimensions differ from the predominant size. Each entry: page number, width, height. Null/omitted when all pages share the same size |
 | `title` | string? | Document title from metadata (null if absent) |
 | `author` | string? | Document author from metadata (null if absent) |
 | `subject` | string? | Document subject from metadata (null if absent) |
 | `keywords` | string? | Document keywords from metadata (null if absent) |
 | `creator` | string? | Creating application from metadata (null if absent) |
 | `producer` | string? | PDF producer from metadata (null if absent) |
-| `bookmarks` | array? | Hierarchical bookmarks/outline tree (null if none). Each entry: title, page number, children |
+| `bookmarks` | array? | Hierarchical bookmarks/outline tree (null if none). Each entry: title, page, children |
 
 ## Functional Requirements
 
 1. The tool must open the PDF using PdfPig, extract metadata, and close/dispose the document within the single tool call.
 2. Page dimensions must be reported in PDF points (1 point = 1/72 inch).
-3. The bookmarks tree must be returned as a nested structure reflecting the document outline hierarchy.
-4. If the document has no bookmarks, the `bookmarks` field must be null (omitted from JSON).
-5. All metadata string fields must be null (omitted) when not present in the document, not empty strings.
-6. Coordinates and dimensions must be rounded to 1 decimal place.
+3. The tool must determine the predominant page size (the width/height combination shared by the most pages) and return it as `predominantPageWidth` and `predominantPageHeight`. Pages that differ from this size must be listed in `pageSizeExceptions` with their page number and dimensions. When all pages share the same size, `pageSizeExceptions` must be null (omitted from JSON).
+4. The bookmarks tree must be returned as a nested structure reflecting the document outline hierarchy.
+5. If the document has no bookmarks, the `bookmarks` field must be null (omitted from JSON).
+6. All metadata string fields must be null (omitted) when not present in the document, not empty strings.
+7. Coordinates and dimensions must be rounded to 1 decimal place.
 
 ## Dependencies
 
@@ -49,7 +52,9 @@ A JSON object containing:
 
 ## Acceptance Criteria
 
-- [ ] Calling `GetPdfInfo` with a valid PDF path returns page count, page dimensions, and available metadata.
+- [ ] Calling `GetPdfInfo` with a valid PDF path returns page count, predominant page dimensions, and available metadata.
+- [ ] Calling `GetPdfInfo` on a document where all pages are the same size omits the `pageSizeExceptions` field.
+- [ ] Calling `GetPdfInfo` on a document with mixed page sizes returns the most common size as predominant and lists exceptions with page numbers.
 - [ ] Calling `GetPdfInfo` on a PDF with bookmarks returns the full outline tree with titles and page numbers.
 - [ ] Calling `GetPdfInfo` on a PDF without bookmarks omits the `bookmarks` field from the response.
 - [ ] Metadata fields not present in the PDF are omitted from the JSON response (not empty strings).

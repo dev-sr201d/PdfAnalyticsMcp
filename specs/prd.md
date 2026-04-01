@@ -56,7 +56,7 @@ The primary users are **AI agents** (LLM-based systems) that consume MCP tools, 
 
 ## 4. High-Level Requirements
 
-- [REQ-1] **Document metadata retrieval** — The server must provide a tool that returns document-level information including page count, individual page dimensions, document title, author, subject, keywords, creator, producer, and the bookmarks/outline tree, so the agent can plan its page-by-page traversal.
+- [REQ-1] **Document metadata retrieval** — The server must provide a tool that returns document-level information including page count, predominant page dimensions (with only non-conforming pages listed individually), document title, author, subject, keywords, creator, producer, and the bookmarks/outline tree, so the agent can plan its page-by-page traversal.
 
 - [REQ-2] **Rich text extraction** — The server must provide a tool that returns text content from a specified page with full positional and stylistic metadata (x, y, width, height, font name, font size, bold/italic flags, and RGB fill color) for each text element. The tool must support configurable granularity (at minimum `words` and `letters` levels). For pages that exceed the inline size target, the tool must support an optional file-based output mode that writes the full result to a caller-specified path and returns a compact summary inline.
 

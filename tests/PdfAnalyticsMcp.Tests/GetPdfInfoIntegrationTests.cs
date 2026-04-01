@@ -46,17 +46,36 @@ public class GetPdfInfoIntegrationTests : McpIntegrationTestBase
         var json = JsonDocument.Parse(result);
         var root = json.RootElement;
 
-        Assert.Equal(2, root.GetProperty("pageCount").GetInt32());
+        Assert.Equal(3, root.GetProperty("pageCount").GetInt32());
         Assert.Equal("Test Document", root.GetProperty("title").GetString());
         Assert.Equal("Test Author", root.GetProperty("author").GetString());
         Assert.Equal("Test Subject", root.GetProperty("subject").GetString());
         Assert.Equal("test, pdf, sample", root.GetProperty("keywords").GetString());
 
-        var pages = root.GetProperty("pages");
-        Assert.Equal(2, pages.GetArrayLength());
-        Assert.Equal(1, pages[0].GetProperty("number").GetInt32());
-        Assert.Equal(612.0, pages[0].GetProperty("width").GetDouble());
-        Assert.Equal(792.0, pages[0].GetProperty("height").GetDouble());
+        // Predominant page size: US Letter
+        Assert.Equal(612.0, root.GetProperty("predominantPageWidth").GetDouble());
+        Assert.Equal(792.0, root.GetProperty("predominantPageHeight").GetDouble());
+
+        // Page 3 (A4) is the exception
+        var exceptions = root.GetProperty("pageSizeExceptions");
+        Assert.Equal(1, exceptions.GetArrayLength());
+        Assert.Equal(3, exceptions[0].GetProperty("number").GetInt32());
+    }
+
+    [Fact]
+    public async Task GetPdfInfo_UniformPageSizes_OmitsPageSizeExceptions()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = GetTestDataPath("sample-with-bookmarks.pdf");
+        var response = await CallToolAsync("get_pdf_info", new { pdfPath });
+        Assert.NotNull(response);
+
+        var result = GetToolResultContent(response);
+        var json = JsonDocument.Parse(result);
+
+        Assert.False(json.RootElement.TryGetProperty("pageSizeExceptions", out _),
+            "pageSizeExceptions field should be omitted when all pages share the same size.");
     }
 
     [Fact]
@@ -77,14 +96,14 @@ public class GetPdfInfoIntegrationTests : McpIntegrationTestBase
 
         var ch1 = bookmarks[0];
         Assert.Equal("Chapter 1", ch1.GetProperty("title").GetString());
-        Assert.Equal(1, ch1.GetProperty("pageNumber").GetInt32());
+        Assert.Equal(1, ch1.GetProperty("page").GetInt32());
         Assert.True(ch1.TryGetProperty("children", out var children));
         Assert.Equal(1, children.GetArrayLength());
         Assert.Equal("Section 1.1", children[0].GetProperty("title").GetString());
 
         var ch2 = bookmarks[1];
         Assert.Equal("Chapter 2", ch2.GetProperty("title").GetString());
-        Assert.Equal(2, ch2.GetProperty("pageNumber").GetInt32());
+        Assert.Equal(2, ch2.GetProperty("page").GetInt32());
     }
 
     [Fact]
