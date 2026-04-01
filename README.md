@@ -18,41 +18,42 @@ The server exposes five tools, each operating on a single page (except `GetPdfIn
 | **GetPageImages** | Embedded image bounding boxes and pixel dimensions. Optional `outputPath` extracts images as PNG files to disk, with render-based fallback for formats PdfPig can't convert directly. |
 | **RenderPagePreview** | Renders a page as a PNG image at configurable DPI (72–600). Returns the image directly for multimodal models to inspect visually. |
 
-## Prerequisites
+## Getting Started
 
-- [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) (9.0.312 or later patch)
+### 1. Download
 
-## Build
+Download the latest release zip for your platform from [GitHub Releases](https://github.com/dev-sr201d/PdfAnalyticsMcp/releases):
 
-```shell
-dotnet build
-```
+| Platform | File |
+|----------|------|
+| Windows x64 | `PdfAnalyticsMcp-win-x64.zip` |
 
-## Run Tests
+The release is a **self-contained** build — no .NET runtime installation is required.
 
-```shell
-dotnet test
-```
+### 2. Extract
 
-## Configuration
+Extract the zip to a permanent location, for example:
 
-### VS Code / GitHub Copilot
+- **Windows:** `C:\Tools\PdfAnalyticsMcp`
 
-Add to your `mcp.json` (user or workspace):
+### 3. Configure Your MCP Client
+
+#### VS Code / GitHub Copilot
+
+Add to your `mcp.json` (user or workspace level):
 
 ```json
 {
   "servers": {
     "pdf-analytics": {
       "type": "stdio",
-      "command": "dotnet",
-      "args": ["run", "--project", "src/PdfAnalyticsMcp"]
+      "command": "C:\\Tools\\PdfAnalyticsMcp\\PdfAnalyticsMcp.exe"
     }
   }
 }
 ```
 
-### Claude Desktop
+#### Claude Desktop
 
 Add to `claude_desktop_config.json`:
 
@@ -60,39 +61,15 @@ Add to `claude_desktop_config.json`:
 {
   "mcpServers": {
     "pdf-analytics": {
-      "command": "dotnet",
-      "args": ["run", "--project", "/absolute/path/to/src/PdfAnalyticsMcp"]
+      "command": "C:\\Tools\\PdfAnalyticsMcp\\PdfAnalyticsMcp.exe"
     }
   }
 }
 ```
 
-### Other MCP Clients
+#### Other MCP Clients
 
-The server communicates over **stdio** (stdin/stdout). Point any MCP-compatible client at `dotnet run --project src/PdfAnalyticsMcp`. All logging goes to stderr so it never interferes with protocol messages.
-
-### Using a Compiled Executable
-
-If you prefer not to use `dotnet run`, you can publish a self-contained executable:
-
-```shell
-dotnet publish src/PdfAnalyticsMcp -c Release -o ./publish
-```
-
-Then reference the binary directly in your MCP configuration:
-
-```json
-{
-  "servers": {
-    "pdf-analytics": {
-      "type": "stdio",
-      "command": "./publish/PdfAnalyticsMcp"
-    }
-  }
-}
-```
-
-This eliminates the SDK dependency at runtime and reduces startup time.
+The server communicates over **stdio** (stdin/stdout). Point any MCP-compatible client at the `PdfAnalyticsMcp.exe` executable. All logging goes to stderr so it never interferes with protocol messages.
 
 ## Example Usage
 
