@@ -17,6 +17,7 @@
     <PackageReference Include="ModelContextProtocol" Version="1.*" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.*" />
     <PackageReference Include="PdfPig" Version="0.*" />
+    <PackageReference Include="SkiaSharp" Version="3.*" />
   </ItemGroup>
 
 </Project>
