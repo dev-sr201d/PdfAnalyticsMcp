@@ -13,6 +13,8 @@ public class PageImagesService(
 
     public async Task<PageImagesDto> ExtractAsync(string pdfPath, int page, string? outputPath = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (outputPath is not null)
         {
             ValidateOutputPath(outputPath);
