@@ -205,13 +205,13 @@ public static class Program
         }
 
         validationService.ValidateFilePath(pdfPath);
-        var result = await renderService.RenderAsync(pdfPath, page, dpi);
+        var result = await renderService.RenderAsync(pdfPath, page, dpi, "png", 80);
 
-        // Write PNG to file next to the source PDF
+        // Write image to file next to the source PDF
         var outputPath = Path.Combine(
             Path.GetDirectoryName(pdfPath)!,
             $"{Path.GetFileNameWithoutExtension(pdfPath)}_page{page}_{dpi}dpi.png");
-        File.WriteAllBytes(outputPath, result.PngData);
+        File.WriteAllBytes(outputPath, result.ImageData);
 
         Console.WriteLine($"Rendered page {result.Page} at {result.Dpi} DPI: {result.Width}x{result.Height} pixels");
         Console.WriteLine($"PNG saved to: {outputPath}");

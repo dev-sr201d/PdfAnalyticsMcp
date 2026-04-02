@@ -33,6 +33,8 @@ public class RenderPagePreviewIntegrationTests : McpIntegrationTestBase
         Assert.True(props.TryGetProperty("pdfPath", out _));
         Assert.True(props.TryGetProperty("page", out _));
         Assert.True(props.TryGetProperty("dpi", out _));
+        Assert.True(props.TryGetProperty("format", out _));
+        Assert.True(props.TryGetProperty("quality", out _));
     }
 
     [Fact]
@@ -343,6 +345,240 @@ public class RenderPagePreviewIntegrationTests : McpIntegrationTestBase
         var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
         Assert.Contains("72", text);
         Assert.Contains("600", text);
+    }
+
+    [Fact]
+    public async Task RenderPagePreview_JpegFormat_ReturnsJpegImage()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
+
+        var response = await CallToolAsync("render_page_preview", new { pdfPath, page = 1, format = "jpeg" });
+        Assert.NotNull(response);
+
+        var content = response.RootElement.GetProperty("result").GetProperty("content");
+        var (imageBlock, textBlock) = FindContentBlocks(content);
+
+        Assert.NotNull(imageBlock);
+        Assert.Equal("image/jpeg", imageBlock.Value.GetProperty("mimeType").GetString());
+
+        var base64Data = imageBlock.Value.GetProperty("data").GetString()!;
+        var bytes = Convert.FromBase64String(base64Data);
+        Assert.True(bytes.Length >= 2);
+        Assert.Equal(0xFF, bytes[0]);
+        Assert.Equal(0xD8, bytes[1]);
+
+        Assert.NotNull(textBlock);
+        var metadata = JsonDocument.Parse(textBlock.Value.GetProperty("text").GetString()!);
+        Assert.Equal("jpeg", metadata.RootElement.GetProperty("format").GetString());
+        Assert.Equal(80, metadata.RootElement.GetProperty("quality").GetInt32());
+        Assert.True(metadata.RootElement.GetProperty("sizeBytes").GetInt32() > 0);
+    }
+
+    [Fact]
+    public async Task RenderPagePreview_PngFormat_ReturnsMetadataWithFormat()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
+
+        var response = await CallToolAsync("render_page_preview", new { pdfPath, page = 1, format = "png" });
+        Assert.NotNull(response);
+
+        var content = response.RootElement.GetProperty("result").GetProperty("content");
+        var (imageBlock, textBlock) = FindContentBlocks(content);
+
+        Assert.NotNull(imageBlock);
+        Assert.Equal("image/png", imageBlock.Value.GetProperty("mimeType").GetString());
+
+        Assert.NotNull(textBlock);
+        var metadata = JsonDocument.Parse(textBlock.Value.GetProperty("text").GetString()!);
+        Assert.Equal("png", metadata.RootElement.GetProperty("format").GetString());
+        Assert.Equal(80, metadata.RootElement.GetProperty("quality").GetInt32());
+        Assert.True(metadata.RootElement.GetProperty("sizeBytes").GetInt32() > 0);
+    }
+
+    [Fact]
+    public async Task RenderPagePreview_JpgAlias_ReturnsJpegFormat()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
+
+        var response = await CallToolAsync("render_page_preview", new { pdfPath, page = 1, format = "jpg" });
+        Assert.NotNull(response);
+
+        var content = response.RootElement.GetProperty("result").GetProperty("content");
+        var (_, textBlock) = FindContentBlocks(content);
+
+        Assert.NotNull(textBlock);
+        var metadata = JsonDocument.Parse(textBlock.Value.GetProperty("text").GetString()!);
+        Assert.Equal("jpeg", metadata.RootElement.GetProperty("format").GetString());
+    }
+
+    [Fact]
+    public async Task RenderPagePreview_InvalidFormat_ReturnsError()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
+
+        var response = await CallToolAsync("render_page_preview", new { pdfPath, page = 1, format = "bmp" });
+        Assert.NotNull(response);
+
+        var resultElement = response.RootElement.GetProperty("result");
+        Assert.True(resultElement.GetProperty("isError").GetBoolean());
+
+        var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
+        Assert.Contains("png", text);
+        Assert.Contains("jpeg", text);
+    }
+
+    [Fact]
+    public async Task RenderPagePreview_CustomQuality_ReflectedInMetadata()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
+
+        var response = await CallToolAsync("render_page_preview", new { pdfPath, page = 1, format = "jpeg", quality = 50 });
+        Assert.NotNull(response);
+
+        var content = response.RootElement.GetProperty("result").GetProperty("content");
+        var (_, textBlock) = FindContentBlocks(content);
+
+        Assert.NotNull(textBlock);
+        var metadata = JsonDocument.Parse(textBlock.Value.GetProperty("text").GetString()!);
+        Assert.Equal(50, metadata.RootElement.GetProperty("quality").GetInt32());
+    }
+
+    [Fact]
+    public async Task RenderPagePreview_QualityOutOfRange_ReturnsError()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
+
+        var response = await CallToolAsync("render_page_preview", new { pdfPath, page = 1, quality = 0 });
+        Assert.NotNull(response);
+
+        var resultElement = response.RootElement.GetProperty("result");
+        Assert.True(resultElement.GetProperty("isError").GetBoolean());
+
+        var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
+        Assert.Contains("1", text);
+        Assert.Contains("100", text);
+    }
+
+    [Fact]
+    public async Task RenderPagePreview_DefaultMetadata_IncludesFormatAndQuality()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
+
+        var response = await CallToolAsync("render_page_preview", new { pdfPath, page = 1 });
+        Assert.NotNull(response);
+
+        var content = response.RootElement.GetProperty("result").GetProperty("content");
+        var (_, textBlock) = FindContentBlocks(content);
+
+        Assert.NotNull(textBlock);
+        var metadata = JsonDocument.Parse(textBlock.Value.GetProperty("text").GetString()!);
+        Assert.Equal("png", metadata.RootElement.GetProperty("format").GetString());
+        Assert.Equal(80, metadata.RootElement.GetProperty("quality").GetInt32());
+        Assert.True(metadata.RootElement.GetProperty("sizeBytes").GetInt32() > 0);
+    }
+
+    [Fact]
+    public async Task RenderPagePreview_FormatCaseInsensitive_AcceptsUppercase()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
+
+        var response = await CallToolAsync("render_page_preview", new { pdfPath, page = 1, format = "JPEG" });
+        Assert.NotNull(response);
+
+        var content = response.RootElement.GetProperty("result").GetProperty("content");
+        var (imageBlock, textBlock) = FindContentBlocks(content);
+
+        Assert.NotNull(imageBlock);
+        Assert.Equal("image/jpeg", imageBlock.Value.GetProperty("mimeType").GetString());
+
+        Assert.NotNull(textBlock);
+        var metadata = JsonDocument.Parse(textBlock.Value.GetProperty("text").GetString()!);
+        Assert.Equal("jpeg", metadata.RootElement.GetProperty("format").GetString());
+    }
+
+    [Fact]
+    public async Task RenderPagePreview_JpegQualityControl_LowerQualityProducesSmallerFile()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
+
+        // Render at quality=60
+        var response60 = await CallToolAsync("render_page_preview", new { pdfPath, page = 1, format = "jpeg", quality = 60 });
+        Assert.NotNull(response60);
+        var content60 = response60.RootElement.GetProperty("result").GetProperty("content");
+        var (_, textBlock60) = FindContentBlocks(content60);
+        var meta60 = JsonDocument.Parse(textBlock60!.Value.GetProperty("text").GetString()!);
+        var size60 = meta60.RootElement.GetProperty("sizeBytes").GetInt32();
+
+        // Render at quality=100
+        var response100 = await CallToolAsync("render_page_preview", new { pdfPath, page = 1, format = "jpeg", quality = 100 });
+        Assert.NotNull(response100);
+        var content100 = response100.RootElement.GetProperty("result").GetProperty("content");
+        var (_, textBlock100) = FindContentBlocks(content100);
+        var meta100 = JsonDocument.Parse(textBlock100!.Value.GetProperty("text").GetString()!);
+        var size100 = meta100.RootElement.GetProperty("sizeBytes").GetInt32();
+
+        Assert.True(size60 < size100, $"Quality 60 size ({size60}) should be smaller than quality 100 size ({size100}).");
+    }
+
+    [Fact]
+    public async Task RenderPagePreview_MetadataSizeBytes_MatchesDecodedDataLength()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
+
+        var response = await CallToolAsync("render_page_preview", new { pdfPath, page = 1 });
+        Assert.NotNull(response);
+
+        var content = response.RootElement.GetProperty("result").GetProperty("content");
+        var (imageBlock, textBlock) = FindContentBlocks(content);
+
+        Assert.NotNull(imageBlock);
+        Assert.NotNull(textBlock);
+
+        var base64Data = imageBlock.Value.GetProperty("data").GetString()!;
+        var decodedBytes = Convert.FromBase64String(base64Data);
+
+        var metadata = JsonDocument.Parse(textBlock.Value.GetProperty("text").GetString()!);
+        var sizeBytes = metadata.RootElement.GetProperty("sizeBytes").GetInt32();
+
+        Assert.Equal(decodedBytes.Length, sizeBytes);
+    }
+
+    [Fact]
+    public async Task RenderPagePreview_QualityTooHigh_ReturnsError()
+    {
+        await PerformHandshakeAsync();
+
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
+
+        var response = await CallToolAsync("render_page_preview", new { pdfPath, page = 1, quality = 101 });
+        Assert.NotNull(response);
+
+        var resultElement = response.RootElement.GetProperty("result");
+        Assert.True(resultElement.GetProperty("isError").GetBoolean());
+
+        var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
+        Assert.Contains("1", text);
+        Assert.Contains("100", text);
     }
 
     #region Helper Methods

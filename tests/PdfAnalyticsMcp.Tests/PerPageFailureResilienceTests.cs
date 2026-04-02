@@ -113,7 +113,7 @@ public class PerPageFailureResilienceTests
     {
         var path = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
 
-        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _renderService.RenderAsync(path, 99, 150));
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _renderService.RenderAsync(path, 99, 150, "png", 80));
 
         Assert.Contains("does not exist", ex.Message);
         Assert.DoesNotContain("An error occurred rendering page", ex.Message);
@@ -124,7 +124,7 @@ public class PerPageFailureResilienceTests
     {
         var path = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
 
-        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _renderService.RenderAsync(path, 0, 150));
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _renderService.RenderAsync(path, 0, 150, "png", 80));
 
         Assert.Contains("Page number must be 1 or greater", ex.Message);
         Assert.DoesNotContain("An error occurred rendering page", ex.Message);
@@ -135,7 +135,7 @@ public class PerPageFailureResilienceTests
     {
         var path = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
 
-        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _renderService.RenderAsync(path, 1, 50));
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _renderService.RenderAsync(path, 1, 50, "png", 80));
 
         Assert.Contains("72", ex.Message);
         Assert.Contains("600", ex.Message);
@@ -184,10 +184,10 @@ public class PerPageFailureResilienceTests
     {
         var path = TestPdfGenerator.GetTestDataPath("sample-with-metadata.pdf");
 
-        await Assert.ThrowsAsync<ArgumentException>(() => _renderService.RenderAsync(path, 99, 150));
+        await Assert.ThrowsAsync<ArgumentException>(() => _renderService.RenderAsync(path, 99, 150, "png", 80));
 
-        var result = await _renderService.RenderAsync(path, 1, 150);
-        Assert.True(result.PngData.Length > 0);
+        var result = await _renderService.RenderAsync(path, 1, 150, "png", 80);
+        Assert.True(result.ImageData.Length > 0);
     }
 
     // --- OperationCanceledException propagates through per-page handlers (FRD-007 FR #10) ---
@@ -200,7 +200,7 @@ public class PerPageFailureResilienceTests
         cts.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => _renderService.RenderAsync(path, 1, 150, cts.Token));
+            () => _renderService.RenderAsync(path, 1, 150, "png", 80, cts.Token));
     }
 
     [Fact]

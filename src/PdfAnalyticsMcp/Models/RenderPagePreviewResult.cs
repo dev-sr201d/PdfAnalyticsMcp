@@ -3,6 +3,9 @@ namespace PdfAnalyticsMcp.Models;
 public record RenderPagePreviewResult(
     int Page,
     int Dpi,
+    string Format,
+    int Quality,
     int Width,
     int Height,
-    byte[] PngData);
+    byte[] ImageData,
+    string MimeType);

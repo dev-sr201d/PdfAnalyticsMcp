@@ -11,11 +11,13 @@ namespace PdfAnalyticsMcp.Tools;
 [McpServerToolType]
 public class RenderPagePreviewTool(IInputValidationService validationService, IRenderPagePreviewService renderService)
 {
-    [McpServerTool, Description("Renders a single PDF page as a PNG image at a configurable DPI. Returns a visual image that multimodal models can inspect directly to verify structural understanding of complex layouts. Also returns a metadata text block with page, dpi, width, and height. Default DPI is 150 (valid range: 72–600).")]
+    [McpServerTool, Description("Renders a single PDF page as an image at a configurable DPI. Supports PNG (lossless, default) and JPEG (lossy, smaller file size) output formats. Returns a visual image that multimodal models can inspect directly to verify structural understanding of complex layouts. Also returns a metadata text block with page, dpi, format, quality, width, height, and sizeBytes. Default DPI is 150 (valid range: 72–600). Default format is 'png'. Default quality is 80 (1–100; controls JPEG compression, ignored for PNG).")]
     public async Task<IEnumerable<ContentBlock>> RenderPagePreview(
         [Description("Absolute path to the PDF file on the local filesystem.")] string pdfPath,
         [Description("1-based page number to render.")] int page,
         [Description("Rendering resolution in dots per inch. Default is 150. Valid range: 72–600. Lower values produce smaller images, higher values produce sharper images.")] int dpi = 150,
+        [Description("Output image format: 'png' (lossless, default) or 'jpeg'/'jpg' (lossy, smaller file size). Case-insensitive.")] string format = "png",
+        [Description("Image quality from 1 (smallest file) to 100 (highest quality). Controls JPEG compression; ignored for PNG.")] int quality = 80,
         CancellationToken cancellationToken = default)
     {
         try
@@ -23,14 +25,14 @@ public class RenderPagePreviewTool(IInputValidationService validationService, IR
             validationService.ValidateFilePath(pdfPath);
             validationService.ValidatePageMinimum(page);
             validationService.ValidateDpi(dpi);
-            var result = await renderService.RenderAsync(pdfPath, page, dpi, cancellationToken);
+            var result = await renderService.RenderAsync(pdfPath, page, dpi, format, quality, cancellationToken);
 
-            var metadata = new RenderPagePreviewMetadataDto(result.Page, result.Dpi, result.Width, result.Height);
+            var metadata = new RenderPagePreviewMetadataDto(result.Page, result.Dpi, result.Format, result.Quality, result.Width, result.Height, result.ImageData.Length);
             var metadataJson = JsonSerializer.Serialize(metadata, SerializerConfig.Options);
 
             return
             [
-                ImageContentBlock.FromBytes(result.PngData, "image/png"),
+                ImageContentBlock.FromBytes(result.ImageData, result.MimeType),
                 new TextContentBlock { Text = metadataJson }
             ];
         }

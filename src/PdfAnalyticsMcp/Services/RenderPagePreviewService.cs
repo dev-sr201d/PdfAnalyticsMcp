@@ -9,13 +9,25 @@ public class RenderPagePreviewService(IInputValidationService validationService,
 {
     private static readonly SemaphoreSlim _renderSemaphore = new(1, 1);
 
-    public async Task<RenderPagePreviewResult> RenderAsync(string pdfPath, int page, int dpi, CancellationToken cancellationToken = default)
+    public async Task<RenderPagePreviewResult> RenderAsync(string pdfPath, int page, int dpi, string format, int quality, CancellationToken cancellationToken = default)
     {
+        // Validate format before acquiring semaphore
+        string normalizedFormat = NormalizeFormat(format);
+        string mimeType = normalizedFormat == "png" ? "image/png" : "image/jpeg";
+
+        // Validate quality before acquiring semaphore
+        if (quality < 1 || quality > 100)
+        {
+            throw new ArgumentException("Quality must be between 1 and 100.");
+        }
+
         var raw = await RenderRawAsync(pdfPath, page, dpi, cancellationToken);
 
-        byte[] pngData = PngEncoder.Encode(raw.BgraData, raw.Width, raw.Height);
+        byte[] imageData = normalizedFormat == "png"
+            ? PngEncoder.Encode(raw.BgraData, raw.Width, raw.Height)
+            : JpegEncoder.Encode(raw.BgraData, raw.Width, raw.Height, quality);
 
-        return new RenderPagePreviewResult(page, dpi, raw.Width, raw.Height, pngData);
+        return new RenderPagePreviewResult(page, dpi, normalizedFormat, quality, raw.Width, raw.Height, imageData, mimeType);
     }
 
     public async Task<RenderRawResult> RenderRawAsync(string pdfPath, int page, int dpi, CancellationToken cancellationToken = default)
@@ -92,5 +104,16 @@ public class RenderPagePreviewService(IInputValidationService validationService,
         {
             _renderSemaphore.Release();
         }
+    }
+
+    private static string NormalizeFormat(string format)
+    {
+        if (string.Equals(format, "png", StringComparison.OrdinalIgnoreCase))
+            return "png";
+        if (string.Equals(format, "jpeg", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(format, "jpg", StringComparison.OrdinalIgnoreCase))
+            return "jpeg";
+
+        throw new ArgumentException("Format must be 'png', 'jpeg', or 'jpg'.");
     }
 }
