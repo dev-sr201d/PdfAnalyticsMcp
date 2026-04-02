@@ -56,7 +56,7 @@ public class RenderPagePreviewIntegrationTests : McpIntegrationTestBase
 
         Assert.NotNull(imageBlock);
         Assert.Equal("image", imageBlock.Value.GetProperty("type").GetString());
-        Assert.Equal("image/png", imageBlock.Value.GetProperty("mimeType").GetString());
+        Assert.Equal("image/jpeg", imageBlock.Value.GetProperty("mimeType").GetString());
         Assert.False(string.IsNullOrEmpty(imageBlock.Value.GetProperty("data").GetString()));
 
         Assert.NotNull(textBlock);
@@ -70,7 +70,7 @@ public class RenderPagePreviewIntegrationTests : McpIntegrationTestBase
     }
 
     [Fact]
-    public async Task RenderPagePreview_ImageDataValidity_ValidPngSignature()
+    public async Task RenderPagePreview_ImageDataValidity_ValidJpegSignature()
     {
         await PerformHandshakeAsync();
 
@@ -86,16 +86,10 @@ public class RenderPagePreviewIntegrationTests : McpIntegrationTestBase
         var base64Data = imageBlock.Value.GetProperty("data").GetString()!;
         var bytes = Convert.FromBase64String(base64Data);
 
-        // PNG signature: 137 80 78 71 13 10 26 10
-        Assert.True(bytes.Length >= 8);
-        Assert.Equal(137, bytes[0]);
-        Assert.Equal(80, bytes[1]);  // P
-        Assert.Equal(78, bytes[2]);  // N
-        Assert.Equal(71, bytes[3]);  // G
-        Assert.Equal(13, bytes[4]);
-        Assert.Equal(10, bytes[5]);
-        Assert.Equal(26, bytes[6]);
-        Assert.Equal(10, bytes[7]);
+        // JPEG SOI marker: 0xFF 0xD8
+        Assert.True(bytes.Length >= 2);
+        Assert.Equal(0xFF, bytes[0]);
+        Assert.Equal(0xD8, bytes[1]);
     }
 
     [Fact]
@@ -486,7 +480,7 @@ public class RenderPagePreviewIntegrationTests : McpIntegrationTestBase
 
         Assert.NotNull(textBlock);
         var metadata = JsonDocument.Parse(textBlock.Value.GetProperty("text").GetString()!);
-        Assert.Equal("png", metadata.RootElement.GetProperty("format").GetString());
+        Assert.Equal("jpeg", metadata.RootElement.GetProperty("format").GetString());
         Assert.Equal(80, metadata.RootElement.GetProperty("quality").GetInt32());
         Assert.True(metadata.RootElement.GetProperty("sizeBytes").GetInt32() > 0);
     }

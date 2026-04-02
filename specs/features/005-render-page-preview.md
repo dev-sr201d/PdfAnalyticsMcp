@@ -22,7 +22,7 @@ This feature introduces a separate dependency (Docnet/PDFium) from the core PdfP
 | `pdfPath` | string | Yes | — | Absolute path to the PDF file |
 | `page` | int | Yes | — | 1-based page number |
 | `dpi` | int | No | `150` | Rendering resolution in dots per inch |
-| `format` | string | No | `"png"` | Output image format: `"png"` (lossless) or `"jpeg"`/`"jpg"` (lossy, smaller file size). Case-insensitive. |
+| `format` | string | No | `"jpeg"` | Output image format: `"png"` (lossless) or `"jpeg"`/`"jpg"` (lossy, smaller file size). Case-insensitive. |
 | `quality` | int | No | `80` | Image quality from 1 (smallest file, lowest quality) to 100 (largest file, highest quality). For JPEG, this directly controls compression level. For PNG, this parameter is accepted but ignored — PNG always uses maximum compression effort since it is lossless and compression level has negligible impact on file size compared to the PNG-to-JPEG savings that motivate format selection. |
 
 ## Outputs
@@ -60,7 +60,7 @@ The tool must return its response as multiple MCP content blocks:
 
 ### Output Format
 
-10. The tool must support two output formats: **PNG** (lossless) and **JPEG** (lossy). The default format must be `"png"` for backward compatibility.
+10. The tool must support two output formats: **PNG** (lossless) and **JPEG** (lossy). The default format must be `"jpeg"` — JPEG at quality 80 provides the best default trade-off between file size and visual fidelity for layout verification, and is far more practical for multimodal AI agent endpoints that have response size limits.
 11. The `format` parameter must be case-insensitive. The values `"png"`, `"jpeg"`, and `"jpg"` are accepted; any other value must be rejected with a clear error message listing the valid options. `"jpg"` is treated as an alias for `"jpeg"` — both produce identical JPEG output.
 12. The `quality` parameter must accept values from 1 to 100 inclusive. Values outside this range must be rejected with a clear error message.
 13. For **JPEG** output, the quality parameter directly controls JPEG compression level (1 = maximum compression / lowest quality, 100 = minimum compression / highest quality). A default quality of 80 provides a good balance between file size and visual fidelity for layout verification.

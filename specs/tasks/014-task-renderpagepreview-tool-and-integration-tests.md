@@ -31,7 +31,7 @@ Define a tool class in `Tools/` that:
    - `pdfPath` (string, required) — Absolute path to the PDF file
    - `page` (int, required) — 1-based page number
    - `dpi` (int, optional, default `150`) — Rendering resolution in DPI
-   - `format` (string, optional, default `"png"`) — Output image format: `"png"`, `"jpeg"`, or `"jpg"`
+   - `format` (string, optional, default `"jpeg"`) — Output image format: `"png"`, `"jpeg"`, or `"jpg"`
    - `quality` (int, optional, default `80`) — Image quality (1–100; controls JPEG compression, ignored for PNG)
 5. The tool method must:
    - **Return `IEnumerable<ContentBlock>`** — This is different from all other tools which return `string`. The MCP C# SDK natively supports this return type and converts each content block into the tool response.
@@ -48,7 +48,7 @@ Define a tool class in `Tools/` that:
 The `[Description]` on the tool method must clearly communicate to AI agents:
 - What the tool does (renders a single PDF page as an image)
 - That it supports PNG (lossless) and JPEG (lossy, smaller) output formats
-- That the default format is PNG and the default quality is 80
+- That the default format is JPEG and the default quality is 80
 - That it returns a visual image that multimodal models can inspect directly
 - That the default DPI is 150 and the valid range is 72–600
 - The primary use case (visually verifying structural understanding of complex layouts)
@@ -61,7 +61,7 @@ Each parameter's `[Description]` must explain:
 - `pdfPath`: That it must be an absolute filesystem path to a PDF file
 - `page`: That it is a 1-based page number
 - `dpi`: That it controls rendering resolution (default 150, range 72–600); lower values produce smaller images, higher values produce sharper images
-- `format`: That it selects the output image format; valid values are `"png"` (lossless, default), `"jpeg"` or `"jpg"` (lossy, smaller file size); case-insensitive
+- `format`: That it selects the output image format; valid values are `"png"` (lossless), `"jpeg"` or `"jpg"` (lossy, smaller file size, default); case-insensitive
 - `quality`: That it controls image quality from 1 (smallest file) to 100 (highest quality); directly controls JPEG compression; ignored for PNG; default is 80
 
 ### Content Block Return Type
@@ -88,7 +88,7 @@ Serialize using `SerializerConfig.Options` (camelCase, no nulls, no indentation)
 ## Acceptance Criteria
 
 - [ ] Tool class is discoverable via MCP `tools/list` request and appears with the correct name, description, and parameter schema (`pdfPath`, `page`, `dpi`, `format`, `quality`).
-- [ ] Calling the tool at default parameters returns two content blocks: one image (PNG) and one text.
+- [ ] Calling the tool at default parameters returns two content blocks: one image (JPEG) and one text.
 - [ ] The image content block has type `image` and MIME type `image/png` when format is PNG.
 - [ ] The image content block has type `image` and MIME type `image/jpeg` when format is JPEG.
 - [ ] The image content block contains valid base64 data that decodes to the correct format (PNG signature or JPEG SOI marker).
@@ -123,18 +123,18 @@ Unlike the other tools (which return a single `TextContentBlock`), this tool ret
 
 1. **Tool discovery** — Send `tools/list` and verify `RenderPagePreview` (or its snake_case equivalent `render_page_preview`) appears with the expected input schema including `pdfPath`, `page`, `dpi`, `format`, and `quality` parameters.
 
-2. **Default rendering (PNG)** — Call the tool on a known test PDF (e.g., `sample-with-metadata.pdf`, page 1) without specifying `dpi`, `format`, or `quality`. Verify:
+2. **Default rendering (JPEG)** — Call the tool on a known test PDF (e.g., `sample-with-metadata.pdf`, page 1) without specifying `dpi`, `format`, or `quality`. Verify:
    - The response `content` array contains exactly 2 elements.
-   - One element has `type` = `"image"`, `mimeType` = `"image/png"`, and non-empty `data`.
+   - One element has `type` = `"image"`, `mimeType` = `"image/jpeg"`, and non-empty `data`.
    - One element has `type` = `"text"` with parseable JSON containing `page`, `dpi`, `format`, `quality`, `width`, `height`, `sizeBytes`.
-   - The metadata `dpi` value is 150 (default), `format` is `"png"`, `quality` is 80 (default).
+   - The metadata `dpi` value is 150 (default), `format` is `"jpeg"`, `quality` is 80 (default).
 
-3. **PNG image data validity** — Decode the base64 image data from the image content block. Verify the decoded bytes start with the PNG signature `[137, 80, 78, 71, 13, 10, 26, 10]`.
+3. **JPEG image data validity** — Decode the base64 image data from the default rendering's image content block. Verify the decoded bytes start with the JPEG SOI marker `[0xFF, 0xD8]`.
 
-4. **JPEG rendering** — Call with `format="jpeg"`. Verify:
-   - The image content block has `mimeType` = `"image/jpeg"`.
-   - The decoded base64 data starts with the JPEG SOI marker `[0xFF, 0xD8]`.
-   - The metadata `format` is `"jpeg"`.
+4. **PNG rendering** — Call with `format="png"`. Verify:
+   - The image content block has `mimeType` = `"image/png"`.
+   - The decoded base64 data starts with the PNG signature `[137, 80, 78, 71, 13, 10, 26, 10]`.
+   - The metadata `format` is `"png"`.
 
 5. **JPEG with "jpg" alias** — Call with `format="jpg"`. Verify the response succeeds with `mimeType` = `"image/jpeg"` and metadata `format` = `"jpeg"`.
 

@@ -142,8 +142,8 @@ No new test PDF generation is required.
 ## Acceptance Criteria
 
 - [ ] `Docnet.Core` NuGet package is added to the main project (if not already present).
-- [ ] The service renders a known test PDF page at 150 DPI with default format (PNG) and returns image data that starts with the PNG signature.
-- [ ] The service renders a known test PDF page at 150 DPI with format `"jpeg"` and returns image data that starts with the JPEG SOI marker `[0xFF, 0xD8]`.
+- [ ] The service renders a known test PDF page at 150 DPI with default format (JPEG) and returns image data that starts with the JPEG SOI marker `[0xFF, 0xD8]`.
+- [ ] The service renders a known test PDF page at 150 DPI with format `"png"` and returns image data that starts with the PNG signature.
 - [ ] The service correctly reports pixel dimensions matching the expected values for the test PDF at the requested DPI (e.g., a 612×792 point page at 150 DPI should produce approximately 1275×1650 pixels).
 - [ ] The service renders correctly at DPI 72 (minimum) and DPI 300, producing proportionally different pixel dimensions.
 - [ ] The service throws `ArgumentException` for DPI below 72 or above 600.
