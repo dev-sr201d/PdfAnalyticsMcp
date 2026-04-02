@@ -12,8 +12,8 @@ There are three phases: **Preparation**, **Page Conversion** (delegated), and **
 
 1. **Receive the request.** The user provides a PDF path and either a single page number, a page range (e.g. 5-12), or "all". If no pages are specified, ask.
 2. **Get document info.** Call `get_pdf_info` to learn the page count, bookmarks, and validate the requested range. If the user said "all", the range is 1 through the total page count.
-3. **Identify chapter font patterns.** Examine the first 3–5 content pages (skip cover pages and tables of contents — chapter title fonts typically don't appear there). Call `render_page_preview` and `get_page_text` (with `outputFile` to write CSV, then read the CSV back) to identify the font name, size, and weight used for chapter titles. Also look for repeating page headers/footers that carry chapter names. Summarize this as the **chapter font pattern** (e.g. "ArialMT, 18pt, bold; page header at y>750 contains chapter name"). Delete the temporary CSV files after analysis.
-4. **Decide on image inclusion.** Based on the preview, determine whether this PDF contains meaningful embedded images that should be included in the Markdown. Set an **include images** flag (yes/no) to pass to the subagent. Note: not all images can be extracted as binary data — some will only have metadata (position, dimensions). The subagent will handle this gracefully.
+3. **Identify chapter font patterns.** Examine the first 3–5 content pages (skip cover pages and tables of contents — chapter title fonts typically don't appear there). Call `render_page_preview` (format `jpg`, quality `80`) and `get_page_text` (with `outputFile` to write CSV, then read the CSV back) to identify the font name, size, and weight used for chapter titles. Also look for repeating page headers/footers that carry chapter names. Summarize this as the **chapter font pattern** (e.g. "ArialMT, 18pt, bold; page header at y>750 contains chapter name"). Delete the temporary CSV files after analysis.
+4. **Image inclusion.** Pass **include images = no** to the subagent if not explicitly stated otherwise by the user. Images can be extracted by the subagent if needed, but this avoids unnecessary extraction when the user only wants text.
 5. **Set up the todo list.** Create a todo item for each page in the range, plus one for the combine step.
 
 ### Phase 2 — Page-by-Page Conversion (Delegated)
@@ -35,7 +35,7 @@ There are three phases: **Preparation**, **Page Conversion** (delegated), and **
     - Shift all other headings down so that the hierarchy is correct and continuous (no jumps from `#` to `####`).
     - Ensure sub-sections within a chapter use `##`, `###`, etc. relative to the chapter heading.
 11. **Write the combined file** as `{basename}.md` (e.g. `report.pdf` → `report.md`). For sub-ranges, use `{basename}_p{start}-{end}.md`.
-12. **Clean up** — ask the user for confirmation, then delete the individual per-page `_p{N}.md` files and any temporary `_p{N}_text.csv` files in one pass.
+12. **Clean up** — ask the user for confirmation, then delete the individual per-page `_p{N}.md` files and all `_p{N}_text.csv` files in one pass.
 
 **Single-page shortcut:** When only one page is requested, still delegate to the subagent, but skip Phase 3. Rename the `_p{N}.md` file directly to the final output name.
 
