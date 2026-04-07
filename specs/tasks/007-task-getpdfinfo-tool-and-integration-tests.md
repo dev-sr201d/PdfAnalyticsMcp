@@ -8,7 +8,7 @@ Create the `GetPdfInfo` MCP tool class that wires together the input validation 
 
 - **FRD:** FRD-002 (Document Metadata Retrieval — GetPdfInfo)
 - **FRD:** FRD-007 (Error Handling & Input Validation)
-- **PRD:** REQ-1 (Document metadata retrieval), REQ-8 (Robust error handling)
+- **PRD:** REQ-1 (Document metadata retrieval), REQ-7 (Robust error handling)
 - **ADRs:** ADR-0003 (MCP SDK), ADR-0005 (Serialization)
 
 ## Dependencies

@@ -25,8 +25,9 @@ public static class Program
             var pdfInfoService = new PdfInfoService();
             var pageTextService = new PageTextService(validationService);
             var pageGraphicsService = new PageGraphicsService(validationService);
-            var renderService = new RenderPagePreviewService(validationService, NullLogger<RenderPagePreviewService>.Instance);
-            var pageImagesService = new PageImagesService(validationService, renderService, NullLogger<PageImagesService>.Instance);
+            var pdfiumService = new PdfiumService(validationService, NullLogger<PdfiumService>.Instance);
+            var renderService = new RenderPagePreviewService(pdfiumService, NullLogger<RenderPagePreviewService>.Instance);
+            var pageImagesService = new PageImagesService(pdfiumService, NullLogger<PageImagesService>.Instance);
 
             var jsonOptions = new JsonSerializerOptions
             {

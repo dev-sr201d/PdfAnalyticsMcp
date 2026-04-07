@@ -25,7 +25,7 @@ This document synthesizes the project requirements (PRD), architecture decisions
 | Language / Runtime | C# / .NET | .NET 9, C# 13 | ADR-0001 |
 | PDF Parsing | PdfPig (`UglyToad.PdfPig`) | Latest stable | ADR-0002 |
 | MCP Server SDK | Official C# SDK (`ModelContextProtocol`) | Latest stable | ADR-0003 |
-| PDF Rendering | Docnet (`Docnet.Core`) | Latest stable | ADR-0004 |
+| PDF Rendering & Image Extraction | PDFiumCore (`PDFiumCore`) | Latest stable | ADR-0004 |
 | JPEG Encoding | SkiaSharp (`SkiaSharp`) | Latest stable | ADR-0004 |
 | Serialization | `System.Text.Json` (built-in) | — | ADR-0005 |
 | Hosting | `Microsoft.Extensions.Hosting` | — | ADR-0003 |
@@ -78,7 +78,7 @@ The server exposes five tools, each operating on a single PDF page (except `GetP
 | `GetPageText` | Text with position, font, size, color; `words` or `letters` granularity; optional `outputFile` for large pages | REQ-2 |
 | `GetPageGraphics` | Classified shapes: rectangles, lines, paths with fill/stroke/color | REQ-3 |
 | `RenderPagePreview` | Full page rendered as PNG or JPEG at configurable DPI and quality | REQ-5 |
-| `GetPageImages` | Image bounding boxes, dimensions; optional file-based PNG extraction to disk with render-based fallback for unsupported image formats | REQ-4 |
+| `GetPageImages` | Image bounding boxes, dimensions; optional file-based PNG extraction to disk via per-image rendered bitmaps | REQ-4 |
 
 ---
 
@@ -189,47 +189,110 @@ Page page = document.GetPage(pageNumber); // 1-based
 
 ### Image Extraction
 
-```csharp
-foreach (IPdfImage image in page.GetImages())
-{
-    var bounds = image.BoundingBox;     // PdfRectangle
-    bool hasPng = image.TryGetPng(out byte[] pngBytes);
-}
-```
-
-- Use `image.BoundingBox` for the bounding box on the page.
-- Use `image.TryGetPng()` for PNG conversion — returns `false` if the image format can't be converted (gracefully handle this case).
-- Only include base64 image data when the caller requests it (`includeData = true`) to manage response size.
+Image extraction is handled by **PDFiumCore** (see Section 8), not PdfPig. PDFiumCore's `fpdf_edit` API provides per-object access to page content, enabling direct extraction of individual image objects as rendered bitmaps — regardless of source encoding — without the limitations of PdfPig's `TryGetPng()`.
 
 ---
 
-## 8. Docnet (PDF Rendering) Best Practices
+## 8. PDFiumCore (PDF Rendering & Image Extraction) Best Practices
+
+PDFiumCore (`PDFiumCore` NuGet package) is a .NET Standard 2.1 wrapper around Google's PDFium library. It provides the full PDFium C API surface, including page rendering (`fpdf_view`), page object manipulation (`fpdf_edit`), and text extraction (`fpdf_text`). This project uses it for **page rendering** (REQ-5) and **embedded image extraction** (REQ-4).
+
+### Library Lifecycle
 
 ```csharp
-// Use the scaling factor overload: scalingFactor = dpi / 72.0
-// This lets Docnet handle per-page pixel calculations internally,
-// eliminating the need to know page point dimensions upfront.
-double scalingFactor = dpi / 72.0;
+// Call once at application startup (e.g., in a hosted service or static initializer)
+fpdfview.FPDF_InitLibrary();
 
-using var docReader = DocLib.Instance.GetDocReader(pdfPath, new PageDimensions(scalingFactor));
-using var pageReader = docReader.GetPageReader(pageNumber - 1); // 0-based index
-int width = pageReader.GetPageWidth();
-int height = pageReader.GetPageHeight();
-byte[] rawBytes = pageReader.GetImage(); // BGRA format
+// Call at shutdown
+fpdfview.FPDF_DestroyLibrary();
+```
+
+### Page Rendering
+
+```csharp
+using PDFiumCore;
+
+var document = fpdfview.FPDF_LoadDocument(pdfPath, null);
+var page = fpdfview.FPDF_LoadPage(document, pageNumber - 1); // 0-based
+
+float scale = (float)(dpi / 72.0);
+double pageWidth = 0, pageHeight = 0;
+fpdfview.FPDF_GetPageSizeByIndex(document, pageNumber - 1, ref pageWidth, ref pageHeight);
+int width = (int)(pageWidth * scale);
+int height = (int)(pageHeight * scale);
+
+var bitmap = fpdfview.FPDFBitmapCreateEx(width, height, (int)FPDFBitmapFormat.BGRA, IntPtr.Zero, 0);
+fpdfview.FPDFBitmapFillRect(bitmap, 0, 0, width, height, 0xFFFFFFFF); // white background
+
+using var matrix = new FS_MATRIX_();
+using var clipping = new FS_RECTF_();
+matrix.A = scale; matrix.D = scale;
+clipping.Right = width; clipping.Top = height;
+
+fpdfview.FPDF_RenderPageBitmapWithMatrix(bitmap, page, matrix, clipping, 0);
+
+// Access raw BGRA pixel data
+IntPtr buffer = fpdfview.FPDFBitmapGetBuffer(bitmap);
+int stride = fpdfview.FPDFBitmapGetStride(bitmap);
+byte[] rawBytes = new byte[stride * height];
+Marshal.Copy(buffer, rawBytes, 0, rawBytes.Length);
+
+// Cleanup
+fpdfview.FPDFBitmapDestroy(bitmap);
+fpdfview.FPDF_ClosePage(page);
+fpdfview.FPDF_CloseDocument(document);
+```
+
+### Image Extraction
+
+```csharp
+using PDFiumCore;
+
+var document = fpdfview.FPDF_LoadDocument(pdfPath, null);
+var page = fpdfview.FPDF_LoadPage(document, pageNumber - 1);
+
+int objCount = fpdf_edit.FPDFPage_CountObjects(page);
+for (int i = 0; i < objCount; i++)
+{
+    var obj = fpdf_edit.FPDFPage_GetObject(page, i);
+    if (fpdf_edit.FPDFPageObj_GetType(obj) != 3) // FPDF_PAGEOBJ_IMAGE = 3
+        continue;
+
+    // Get bounding box
+    float left = 0, bottom = 0, right = 0, top = 0;
+    fpdf_edit.FPDFPageObj_GetBounds(obj, ref left, ref bottom, ref right, ref top);
+
+    // Get image metadata
+    var metadata = new FPDF_IMAGEOBJ_METADATA();
+    fpdf_edit.FPDFImageObj_GetImageMetadata(obj, page, ref metadata);
+    // metadata.width, metadata.height, metadata.bits_per_pixel, metadata.colorspace
+
+    // Render image object to bitmap (with mask + matrix applied)
+    var imgBitmap = fpdf_edit.FPDFImageObj_GetRenderedBitmap(document, page, obj);
+    // Extract pixel data via FPDFBitmapGetBuffer, encode to PNG, write to disk
+    fpdfview.FPDFBitmapDestroy(imgBitmap);
+}
+
+fpdfview.FPDF_ClosePage(page);
+fpdfview.FPDF_CloseDocument(document);
 ```
 
 ### Key Rules
 
-- Docnet page numbers are **0-based** — subtract 1 from the user-facing 1-based page number.
-- `GetImage()` returns raw **BGRA pixel data** (4 bytes per pixel), not an encoded image. You must encode to PNG or JPEG before returning to the agent.
+- PDFium page numbers are **0-based** — subtract 1 from the user-facing 1-based page number.
+- **`FPDF_InitLibrary()`** must be called once before any PDFium operations. Call `FPDF_DestroyLibrary()` at application shutdown.
+- Rendering output is raw **BGRA pixel data** (4 bytes per pixel), not an encoded image. You must encode to PNG or JPEG before returning to the agent.
 - For **PNG encoding**, use a lightweight manual PNG writer using `System.IO.Compression.ZLibStream` (built into .NET 6+). No external imaging library needed.
 - For **JPEG encoding**, use **SkiaSharp** (`SKImage.Encode(SKEncodedImageFormat.Jpeg, quality)`). SkiaSharp wraps libjpeg-turbo for high-quality compression with a direct 1–100 quality mapping. See ADR-0004.
-- Both encoders must composite the BGRA alpha channel against a white background before encoding, producing opaque output. This matches standard PDF viewer behavior.
-- Use `PageDimensions(double scalingFactor)` where `scalingFactor = dpi / 72.0`. This directly achieves the desired rendering DPI without needing to know the page's intrinsic point dimensions upfront, which eliminates any dependency on PdfPig for rendering. Default to 150 DPI — a good balance between visual clarity and data size. A typical US Letter page at 150 DPI produces a ~1275×1650 pixel image.
-- Docnet has **native dependencies** (PDFium binaries) bundled per platform in the NuGet package. These are auto-selected at runtime — no manual configuration needed.
-- Dispose `IDocReader` and `IPageReader` via `using` — they hold native resources.
-- Docnet operates independently from PdfPig. Each library opens the PDF file separately, which is fine for short-lived tool calls.
-- **Docnet/PDFium is not thread-safe.** The underlying PDFium native library does not support concurrent calls from multiple threads. Use a `static SemaphoreSlim(1, 1)` in the rendering service to serialize all calls through `DocLib.Instance`. Accept `CancellationToken` in the rendering method so that callers queued behind the semaphore can be cancelled by the MCP client.
+- For page rendering, composite the BGRA alpha channel against a white background before encoding, producing opaque output. This matches standard PDF viewer behavior.
+- For image extraction, preserve the alpha channel as-is — extracted images may contain transparency. Do not composite against white.
+- For page rendering, use `FPDF_RenderPageBitmapWithMatrix()` with a scaling matrix where `scalingFactor = dpi / 72.0`. Default to 150 DPI — a good balance between visual clarity and data size. A typical US Letter page at 150 DPI produces a ~1275×1650 pixel image.
+- For image extraction, use `FPDFImageObj_GetRenderedBitmap(document, page, imageObject)` to render each image object individually. This produces a clean bitmap with the image's mask and transformation matrix applied, at the image's native resolution. No full-page render-and-crop fallback is needed.
+- PDFiumCore bundles **platform-specific PDFium native binaries** via NuGet for Windows (x64, x86), Linux (x64), and macOS (x64). These are auto-selected at runtime.
+- All PDFium handles (`FpdfDocumentT`, `FpdfPageT`, `FpdfBitmapT`) must be explicitly released via their corresponding close/destroy functions. Use `try/finally` to ensure cleanup.
+- PDFiumCore operates independently from PdfPig. Each library opens the PDF file separately, which is fine for short-lived tool calls.
+- **PDFium is not thread-safe.** The underlying PDFium native library does not support concurrent calls from multiple threads. Use a `static SemaphoreSlim(1, 1)` in a shared PDFiumCore service to serialize all calls. Accept `CancellationToken` in service methods so that callers queued behind the semaphore can be cancelled by the MCP client.
+- **Shared PDFiumCore service.** Both page rendering and image extraction depend on PDFiumCore. Encapsulate the library lifecycle (`FPDF_InitLibrary` / `FPDF_DestroyLibrary`), the serialization semaphore, and document/page loading with consistent error handling in a single shared service. The rendering service and image extraction service consume this shared service rather than interacting with PDFiumCore directly. This avoids duplicating semaphore management, lifecycle code, and error handling across features.
 
 ---
 
@@ -300,7 +363,8 @@ public record WordDto(
 - Page number validation (0, negative, beyond page count).
 - Invalid/missing file path handling.
 - Response size stays within expected bounds for representative pages.
-- Docnet rendering produces valid PNG bytes.
+- PDFiumCore rendering produces valid PNG bytes.
+- PDFiumCore image extraction produces correct per-image bitmaps.
 - Serialization output matches expected JSON structure.
 
 ---
@@ -311,7 +375,7 @@ public record WordDto(
 - **Word-level default** — `page.GetWords()` is ~5× less data than `page.Letters` and sufficient for most structural analysis.
 - **Avoid large allocations** — for image data, use `Span<byte>` / `Memory<byte>` where possible. Base64-encode directly to the output rather than building intermediate strings.
 - **Reuse `JsonSerializerOptions`** — creating new options per call forces recomputation of internal caches.
-- **Dispose native resources** — both PdfPig and Docnet hold unmanaged resources. Always use `using`.
+- **Dispose native resources** — both PdfPig and PDFiumCore hold unmanaged resources. Always use `using` or `try/finally` to release handles.
 
 ---
 
@@ -321,4 +385,4 @@ public record WordDto(
 - **No arbitrary code execution** — the server only reads PDF files. No shell commands, no file writes.
 - **Error message sanitization** — do not leak internal file paths, stack traces, or system information in tool error responses.
 - **Resource limits** — very large PDFs or pages with thousands of graphics elements could produce oversized responses. Consider response size caps as a safeguard.
-- **Native dependency trust** — Docnet's PDFium binaries come from the official NuGet package. Do not substitute with untrusted binaries.
+- **Native dependency trust** — PDFiumCore's PDFium binaries come from the official NuGet package. Do not substitute with untrusted binaries.

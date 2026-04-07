@@ -8,7 +8,7 @@ Create the MCP tool class for `GetPageText` and comprehensive integration tests 
 
 - **FRD:** FRD-003 (Page Text Extraction — GetPageText)
 - **FRD:** FRD-007 (Error Handling & Input Validation)
-- **PRD:** REQ-2 (Rich text extraction), REQ-7 (Page-by-page processing), REQ-8 (Robust error handling)
+- **PRD:** REQ-2 (Rich text extraction), REQ-6 (Page-by-page processing), REQ-7 (Robust error handling)
 - **ADRs:** ADR-0003 (MCP SDK), ADR-0005 (Serialization)
 
 ## Dependencies

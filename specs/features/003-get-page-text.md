@@ -2,7 +2,7 @@
 
 ## Traces To
 
-- **PRD:** REQ-2 (Rich text extraction), REQ-6 (Data volume management), REQ-7 (Page-by-page processing), REQ-10 (Concurrent tool safety)
+- **PRD:** REQ-2 (Rich text extraction), NFR-1 (Data volume management), REQ-6 (Page-by-page processing), REQ-9 (Concurrent tool safety)
 - **ADRs:** ADR-0002 (PdfPig), ADR-0005 (Serialization)
 
 ## Summary
@@ -69,8 +69,8 @@ Same fields as word elements, but each element represents a single character. Th
 
 ## Functional Requirements
 
-1. The tool must operate on a single page per call (REQ-7). It must use `document.GetPage(n)` for direct access, not iterate all pages.
-2. Default granularity must be `"words"` — this produces ~5× less data than letter-level and is sufficient for most layout analysis (REQ-6).
+1. The tool must operate on a single page per call (REQ-6). It must use `document.GetPage(n)` for direct access, not iterate all pages.
+2. Default granularity must be `"words"` — this produces ~5× less data than letter-level and is sufficient for most layout analysis (NFR-1).
 3. Word extraction must use `page.GetWords()` from PdfPig. For letter-level, use `page.Letters`.
 4. PdfPig's `Word` object does not directly expose font name, font size, or color. These must be **derived from the word's constituent `Letter` objects** (e.g., using the first letter's properties, or the most common values across all letters in the word).
 5. Each text element must include its bounding box (x, y, w, h), font name, font size, and RGB fill color.

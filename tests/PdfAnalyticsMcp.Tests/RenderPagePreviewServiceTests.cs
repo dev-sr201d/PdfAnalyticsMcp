@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using Microsoft.Extensions.Logging.Abstractions;
 using PdfAnalyticsMcp.Services;
+using PDFiumCore;
 
 namespace PdfAnalyticsMcp.Tests;
 
@@ -8,9 +9,25 @@ public class RenderPagePreviewServiceTests
 {
     private static readonly byte[] PngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
 
-    private readonly RenderPagePreviewService _service = new(
-        new InputValidationService(),
-        NullLogger<RenderPagePreviewService>.Instance);
+    private static int _initialized;
+
+    private readonly RenderPagePreviewService _service;
+
+    public RenderPagePreviewServiceTests()
+    {
+        if (Interlocked.Exchange(ref _initialized, 1) == 0)
+        {
+            fpdfview.FPDF_InitLibrary();
+        }
+
+        var pdfiumService = new PdfiumService(
+            new InputValidationService(),
+            NullLogger<PdfiumService>.Instance);
+
+        _service = new RenderPagePreviewService(
+            pdfiumService,
+            NullLogger<RenderPagePreviewService>.Instance);
+    }
 
     private static string GetTestDataPath(string fileName)
     {

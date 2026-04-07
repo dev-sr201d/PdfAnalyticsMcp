@@ -7,7 +7,7 @@ Establish the shared JSON serialization infrastructure that all MCP tools will u
 ## Traces To
 
 - **FRD:** FRD-002 (GetPdfInfo), and all subsequent tool FRDs
-- **PRD:** REQ-6 (Data volume management)
+- **PRD:** NFR-1 (Data volume management)
 - **ADRs:** ADR-0005 (Serialization and Response Format)
 
 ## Dependencies

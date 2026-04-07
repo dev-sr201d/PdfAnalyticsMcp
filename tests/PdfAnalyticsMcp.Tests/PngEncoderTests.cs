@@ -151,6 +151,98 @@ public class PngEncoderTests
         Assert.Equal(height, parsedHeight);
     }
 
+    // --- Transparent RGBA Mode (preserveAlpha = true) ---
+
+    [Fact]
+    public void Encode_PreserveAlpha_IhdrHasColorType6()
+    {
+        byte[] bgra = new byte[2 * 2 * 4];
+        byte[] png = PngEncoder.Encode(bgra, 2, 2, preserveAlpha: true);
+
+        int ihdrDataOffset = 8 + 4 + 4;
+        byte bitDepth = png[ihdrDataOffset + 8];
+        byte colorType = png[ihdrDataOffset + 9];
+
+        Assert.Equal(8, bitDepth);
+        Assert.Equal(6, colorType); // RGBA — alpha preserved
+    }
+
+    [Fact]
+    public void Encode_PreserveAlpha_PreservesAlphaChannel()
+    {
+        // Single pixel: B=0, G=128, R=255, A=200
+        byte[] bgra = [0, 128, 255, 200];
+        byte[] png = PngEncoder.Encode(bgra, 1, 1, preserveAlpha: true);
+
+        // Extract and decompress IDAT data
+        byte[] idatData = ExtractIdatData(png);
+        using var decompressed = new MemoryStream();
+        using (var zlibStream = new ZLibStream(new MemoryStream(idatData), CompressionMode.Decompress))
+        {
+            zlibStream.CopyTo(decompressed);
+        }
+
+        byte[] raw = decompressed.ToArray();
+        // Row: filter byte (0) + RGBA pixel data (alpha preserved, no compositing)
+        Assert.Equal(5, raw.Length); // 1 filter byte + 4 bytes for 1 RGBA pixel
+        Assert.Equal(0, raw[0]); // Filter byte = None
+
+        // RGBA order, no compositing
+        Assert.Equal(255, raw[1]); // R
+        Assert.Equal(128, raw[2]); // G
+        Assert.Equal(0, raw[3]);   // B
+        Assert.Equal(200, raw[4]); // A
+    }
+
+    [Fact]
+    public void Encode_PreserveAlpha_FullyTransparentPixel_PreservesZeroAlpha()
+    {
+        // Single pixel: B=100, G=150, R=200, A=0 (fully transparent)
+        byte[] bgra = [100, 150, 200, 0];
+        byte[] png = PngEncoder.Encode(bgra, 1, 1, preserveAlpha: true);
+
+        // Extract and decompress IDAT data
+        byte[] idatData = ExtractIdatData(png);
+        using var decompressed = new MemoryStream();
+        using (var zlibStream = new ZLibStream(new MemoryStream(idatData), CompressionMode.Decompress))
+        {
+            zlibStream.CopyTo(decompressed);
+        }
+
+        byte[] raw = decompressed.ToArray();
+        Assert.Equal(5, raw.Length); // 1 filter byte + 4 bytes for 1 RGBA pixel
+        Assert.Equal(0, raw[0]); // Filter byte = None
+
+        // Alpha preserved as 0 — not composited to white
+        Assert.Equal(200, raw[1]); // R
+        Assert.Equal(150, raw[2]); // G
+        Assert.Equal(100, raw[3]); // B
+        Assert.Equal(0, raw[4]);   // A (preserved as 0)
+    }
+
+    [Fact]
+    public void Encode_PreserveAlpha_SinglePixel_ProducesValidPng()
+    {
+        byte[] bgra = [100, 150, 200, 128];
+        byte[] png = PngEncoder.Encode(bgra, 1, 1, preserveAlpha: true);
+
+        // Verify PNG signature
+        Assert.Equal(PngSignature, png[..8]);
+
+        // Verify IHDR
+        int ihdrDataOffset = 8 + 4 + 4;
+        int width = BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(ihdrDataOffset, 4));
+        int height = BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(ihdrDataOffset + 4, 4));
+        Assert.Equal(1, width);
+        Assert.Equal(1, height);
+        Assert.Equal(6, png[ihdrDataOffset + 9]); // Color type RGBA
+
+        // Verify it ends with IEND
+        int iendStart = png.Length - 12;
+        string iendType = System.Text.Encoding.ASCII.GetString(png, iendStart + 4, 4);
+        Assert.Equal("IEND", iendType);
+    }
+
     /// <summary>
     /// Walks the PNG chunks and extracts concatenated IDAT data.
     /// </summary>

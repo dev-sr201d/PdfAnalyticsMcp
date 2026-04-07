@@ -7,5 +7,5 @@ public record ImageElementDto(
     double H,
     int PixelWidth,
     int PixelHeight,
-    int BitsPerComponent,
+    int BitsPerPixel,
     string? File);

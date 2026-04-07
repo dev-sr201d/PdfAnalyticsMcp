@@ -15,7 +15,7 @@ The server exposes five tools, each operating on a single page (except `GetPdfIn
 | **GetPdfInfo** | Page count, dimensions, title, author, subject, keywords, creator, producer, and the full bookmark/outline tree. |
 | **GetPageText** | Text with bounding boxes, font name, font size, color, bold/italic flags. Supports `words` (default) or `letters` granularity. Optional `outputFile` writes CSV to disk for large pages. |
 | **GetPageGraphics** | Classified vector shapes — rectangles, lines, and complex paths with fill/stroke colors, stroke width, and dash patterns. Useful for identifying table gridlines, sidebars, and dividers. |
-| **GetPageImages** | Embedded image bounding boxes and pixel dimensions. Optional `outputPath` extracts images as PNG files to disk, with render-based fallback for formats PdfPig can't convert directly. |
+| **GetPageImages** | Embedded image bounding boxes and pixel dimensions. Optional `outputPath` extracts images to disk — JPEG images are extracted as raw `.jpg` files (zero re-encoding), all others as `.png` via per-image rendered bitmaps. |
 | **RenderPagePreview** | Renders a page as a JPEG image (default) or PNG at configurable DPI (72–600) and quality (1–100). Returns the image directly for multimodal models to inspect visually. |
 
 ## Getting Started
@@ -78,7 +78,7 @@ Once connected, an agent can:
 1. **Get document structure** — call `GetPdfInfo` to learn page count, dimensions, and bookmarks.
 2. **Extract text with metadata** — call `GetPageText` on a page to get every word with its position, font, size, and color. Use font patterns to identify headings, body text, and table headers.
 3. **Understand page layout** — call `GetPageGraphics` to find table borders, shaded regions, and dividers that define the visual structure.
-4. **Inspect images** — call `GetPageImages` to locate embedded images and understand text flow around them. Provide an `outputPath` to extract images as PNG files for embedding in converted documents.
+4. **Inspect images** — call `GetPageImages` to locate embedded images and understand text flow around them. Provide an `outputPath` to extract images to disk — JPEGs are extracted losslessly as `.jpg`, others as `.png`.
 5. **Visually verify** — call `RenderPagePreview` to get an image of the page and confirm structural understanding. Defaults to JPEG at quality 80; use `format="png"` for lossless output.
 
 ## PDF Converter Agents
@@ -96,7 +96,7 @@ Invoke them in VS Code by typing `@pdf-converter` or `@pdf-page-converter` in Co
 src/PdfAnalyticsMcp/         Main server project
   Program.cs                 Host setup, MCP server registration
   Tools/                     One tool class per MCP tool
-  Services/                  PDF extraction logic (PdfPig, Docnet)
+  Services/                  PDF extraction logic (PdfPig, PDFiumCore)
   Models/                    DTOs for tool responses
 tests/PdfAnalyticsMcp.Tests/ Unit and integration tests
   TestData/                  Sample PDFs for tests
@@ -108,7 +108,7 @@ specs/                       PRD, ADRs, feature specs, task breakdowns
 | Component | Library |
 |-----------|---------|
 | PDF text & graphics parsing | [PdfPig](https://github.com/UglyToad/PdfPig) |
-| PDF page rendering | [Docnet](https://github.com/GowenGit/docnet) (PDFium) |
+| PDF rendering & image extraction | [PDFiumCore](https://github.com/Dtronix/PDFiumCore) (PDFium) |
 | MCP server SDK | [ModelContextProtocol](https://github.com/modelcontextprotocol/csharp-sdk) |
 | Serialization | System.Text.Json |
 | Hosting | Microsoft.Extensions.Hosting |

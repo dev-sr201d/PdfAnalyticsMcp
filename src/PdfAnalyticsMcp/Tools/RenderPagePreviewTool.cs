@@ -25,6 +25,8 @@ public class RenderPagePreviewTool(IInputValidationService validationService, IR
             validationService.ValidateFilePath(pdfPath);
             validationService.ValidatePageMinimum(page);
             validationService.ValidateDpi(dpi);
+            validationService.ValidateFormat(format);
+            validationService.ValidateQuality(quality);
             var result = await renderService.RenderAsync(pdfPath, page, dpi, format, quality, cancellationToken);
 
             var metadata = new RenderPagePreviewMetadataDto(result.Page, result.Dpi, result.Format, result.Quality, result.Width, result.Height, result.ImageData.Length);
@@ -37,6 +39,10 @@ public class RenderPagePreviewTool(IInputValidationService validationService, IR
             ];
         }
         catch (ArgumentException ex)
+        {
+            throw new McpException(ex.Message);
+        }
+        catch (InvalidOperationException ex)
         {
             throw new McpException(ex.Message);
         }

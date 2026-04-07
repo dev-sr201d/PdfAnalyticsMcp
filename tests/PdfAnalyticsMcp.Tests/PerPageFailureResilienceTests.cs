@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using PdfAnalyticsMcp.Services;
+using PDFiumCore;
 
 namespace PdfAnalyticsMcp.Tests;
 
@@ -12,17 +13,32 @@ namespace PdfAnalyticsMcp.Tests;
 /// </summary>
 public class PerPageFailureResilienceTests
 {
+    private static int _initialized;
+
     private readonly PageTextService _textService = new(new InputValidationService());
     private readonly PageGraphicsService _graphicsService = new(new InputValidationService());
-    private readonly PageImagesService _imagesService = new(
-        new InputValidationService(),
-        new RenderPagePreviewService(
+    private readonly PageImagesService _imagesService;
+    private readonly RenderPagePreviewService _renderService;
+
+    public PerPageFailureResilienceTests()
+    {
+        if (Interlocked.Exchange(ref _initialized, 1) == 0)
+        {
+            fpdfview.FPDF_InitLibrary();
+        }
+
+        var pdfiumService = new PdfiumService(
             new InputValidationService(),
-            NullLogger<RenderPagePreviewService>.Instance),
-        NullLogger<PageImagesService>.Instance);
-    private readonly RenderPagePreviewService _renderService = new(
-        new InputValidationService(),
-        NullLogger<RenderPagePreviewService>.Instance);
+            NullLogger<PdfiumService>.Instance);
+
+        _renderService = new RenderPagePreviewService(
+            pdfiumService,
+            NullLogger<RenderPagePreviewService>.Instance);
+
+        _imagesService = new PageImagesService(
+            pdfiumService,
+            NullLogger<PageImagesService>.Instance);
+    }
 
     // --- PageTextService: validation errors pass through unchanged ---
 

@@ -7,7 +7,7 @@ Create the .NET 9 solution structure, main server project, NuGet package referen
 ## Traces To
 
 - **FRD:** FRD-001 (MCP Server Host & Stdio Transport)
-- **PRD:** REQ-9 (Local stdio transport)
+- **PRD:** REQ-8 (Local stdio transport)
 - **ADRs:** ADR-0001 (Language/Runtime), ADR-0003 (MCP SDK)
 
 ## Dependencies

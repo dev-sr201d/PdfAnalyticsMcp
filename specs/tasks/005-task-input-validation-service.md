@@ -7,7 +7,7 @@ Create a shared input validation service that all MCP tools will use to validate
 ## Traces To
 
 - **FRD:** FRD-007 (Error Handling & Input Validation)
-- **PRD:** REQ-8 (Robust error handling)
+- **PRD:** REQ-7 (Robust error handling)
 - **ADRs:** ADR-0003 (MCP SDK error model)
 
 ## Dependencies

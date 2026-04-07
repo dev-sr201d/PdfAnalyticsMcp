@@ -82,7 +82,7 @@ public class GetPageImagesIntegrationTests : McpIntegrationTestBase, IDisposable
         Assert.True(image.TryGetProperty("h", out _));
         Assert.True(image.TryGetProperty("pixelWidth", out _));
         Assert.True(image.TryGetProperty("pixelHeight", out _));
-        Assert.True(image.TryGetProperty("bitsPerComponent", out _));
+        Assert.True(image.TryGetProperty("bitsPerPixel", out _));
     }
 
     [Fact]
@@ -180,6 +180,37 @@ public class GetPageImagesIntegrationTests : McpIntegrationTestBase, IDisposable
                 Assert.Equal((byte)'G', bytes[3]);
             }
         }
+    }
+
+    [Fact]
+    public async Task GetPageImages_WithOutputPath_ExtractedJpegFilesAreValid()
+    {
+        await PerformHandshakeAsync();
+
+        TestPdfGenerator.CreateJpegImageTestPdf();
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-jpeg-image.pdf");
+
+        var response = await CallToolAsync("get_page_images", new { pdfPath, page = 1, outputPath = _tempDir });
+        Assert.NotNull(response);
+
+        var result = GetToolResultContent(response);
+        var json = JsonDocument.Parse(result);
+        var images = json.RootElement.GetProperty("images");
+        Assert.True(images.GetArrayLength() > 0);
+
+        var image = images[0];
+        Assert.True(image.TryGetProperty("file", out var fileElement), "file field should be present when outputPath is provided.");
+        var filePath = fileElement.GetString()!;
+        Assert.True(File.Exists(filePath), $"Expected JPEG file to exist: {filePath}");
+        Assert.EndsWith(".jpg", filePath, StringComparison.OrdinalIgnoreCase);
+
+        // Verify JPEG SOI and EOI markers
+        var bytes = File.ReadAllBytes(filePath);
+        Assert.True(bytes.Length >= 4, "JPEG file too small.");
+        Assert.Equal(0xFF, bytes[0]); // SOI marker
+        Assert.Equal(0xD8, bytes[1]);
+        Assert.Equal(0xFF, bytes[^2]); // EOI marker
+        Assert.Equal(0xD9, bytes[^1]);
     }
 
     [Fact]
@@ -374,7 +405,7 @@ public class GetPageImagesIntegrationTests : McpIntegrationTestBase, IDisposable
         Assert.True(resultElement.GetProperty("isError").GetBoolean());
 
         var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
-        Assert.Contains("..", text);
+        Assert.Contains("Invalid output path", text);
     }
 
     [Fact]
@@ -394,6 +425,94 @@ public class GetPageImagesIntegrationTests : McpIntegrationTestBase, IDisposable
 
         var text = resultElement.GetProperty("content")[0].GetProperty("text").GetString()!;
         Assert.Contains("does not exist", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetPageImages_FormXObjectRecursion_DiscoversImageInsideFormXObject()
+    {
+        await PerformHandshakeAsync();
+
+        TestPdfGenerator.CreateFormXObjectImageTestPdf();
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-formxobj-image.pdf");
+
+        var response = await CallToolAsync("get_page_images", new { pdfPath, page = 1, outputPath = _tempDir });
+        Assert.NotNull(response);
+
+        var result = GetToolResultContent(response);
+        var json = JsonDocument.Parse(result);
+        var root = json.RootElement;
+
+        Assert.Equal(1, root.GetProperty("page").GetInt32());
+
+        var images = root.GetProperty("images");
+        Assert.True(images.GetArrayLength() > 0, "Expected at least one image discovered inside the Form XObject.");
+
+        var image = images[0];
+        Assert.True(image.TryGetProperty("x", out _));
+        Assert.True(image.TryGetProperty("y", out _));
+        Assert.True(image.TryGetProperty("w", out _));
+        Assert.True(image.TryGetProperty("h", out _));
+        Assert.True(image.TryGetProperty("pixelWidth", out _));
+        Assert.True(image.TryGetProperty("pixelHeight", out _));
+        Assert.True(image.TryGetProperty("bitsPerPixel", out _));
+
+        // Verify the image was extracted as a valid PNG file
+        Assert.True(image.TryGetProperty("file", out var fileElement), "file field should be present when outputPath is provided.");
+        var filePath = fileElement.GetString()!;
+        Assert.True(File.Exists(filePath), $"Expected PNG file to exist: {filePath}");
+
+        var bytes = File.ReadAllBytes(filePath);
+        Assert.True(bytes.Length >= 4);
+        Assert.Equal(0x89, bytes[0]); // PNG signature
+        Assert.Equal((byte)'P', bytes[1]);
+        Assert.Equal((byte)'N', bytes[2]);
+        Assert.Equal((byte)'G', bytes[3]);
+    }
+
+    [Fact]
+    public async Task GetPageImages_DuplicateFormXObject_ReportsBothOccurrences()
+    {
+        await PerformHandshakeAsync();
+
+        TestPdfGenerator.CreateDuplicateFormXObjectImageTestPdf();
+        var pdfPath = TestPdfGenerator.GetTestDataPath("sample-dupformxobj-image.pdf");
+
+        var response = await CallToolAsync("get_page_images", new { pdfPath, page = 1, outputPath = _tempDir });
+        Assert.NotNull(response);
+
+        var result = GetToolResultContent(response);
+        var json = JsonDocument.Parse(result);
+        var images = json.RootElement.GetProperty("images");
+
+        // The same Form XObject is referenced twice — PDFium creates separate object instances
+        // for each reference, so both occurrences are reported with their own extraction
+        Assert.True(images.GetArrayLength() >= 2, "Expected at least two image occurrences from duplicate Form XObject references.");
+
+        // Both occurrences should have positive dimensions and valid metadata
+        foreach (var image in images.EnumerateArray())
+        {
+            Assert.True(image.GetProperty("w").GetDouble() > 0);
+            Assert.True(image.GetProperty("h").GetDouble() > 0);
+            Assert.True(image.TryGetProperty("pixelWidth", out _));
+            Assert.True(image.TryGetProperty("pixelHeight", out _));
+            Assert.True(image.TryGetProperty("bitsPerPixel", out _));
+        }
+
+        // Both occurrences should have file paths since outputPath was provided
+        foreach (var image in images.EnumerateArray())
+        {
+            Assert.True(image.TryGetProperty("file", out var fileElement), "file field should be present when outputPath is provided.");
+            var filePath = fileElement.GetString()!;
+            Assert.True(File.Exists(filePath), $"Expected PNG file to exist: {filePath}");
+
+            // Verify valid PNG
+            var bytes = File.ReadAllBytes(filePath);
+            Assert.True(bytes.Length >= 4);
+            Assert.Equal(0x89, bytes[0]);
+            Assert.Equal((byte)'P', bytes[1]);
+            Assert.Equal((byte)'N', bytes[2]);
+            Assert.Equal((byte)'G', bytes[3]);
+        }
     }
 
     private static void AssertAtMostOneDecimalPlace(double value)

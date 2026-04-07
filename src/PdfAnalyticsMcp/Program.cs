@@ -19,5 +19,7 @@ builder.Services.AddSingleton<IPageTextService, PageTextService>();
 builder.Services.AddSingleton<IPageGraphicsService, PageGraphicsService>();
 builder.Services.AddSingleton<IPageImagesService, PageImagesService>();
 builder.Services.AddSingleton<IRenderPagePreviewService, RenderPagePreviewService>();
+builder.Services.AddHostedService<PdfiumLifecycleService>();
+builder.Services.AddSingleton<IPdfiumService, PdfiumService>();
 
 await builder.Build().RunAsync();

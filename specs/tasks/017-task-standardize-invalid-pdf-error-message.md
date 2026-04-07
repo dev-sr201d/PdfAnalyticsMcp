@@ -2,22 +2,25 @@
 
 ## Description
 
-The server uses two independent engines to open PDF files: PdfPig (text, graphics, images extraction) and Docnet (page rendering). FRD-007 Functional Requirement 9 requires that file-open errors be classified into two distinct categories:
+The server uses two independent engines to open PDF files: PdfPig (text, graphics extraction) and PDFiumCore (page rendering, image extraction). FRD-007 Functional Requirement 9 requires that file-open errors be classified into two distinct categories:
 
 1. **File access/I/O errors** (file locked, permission denied, sharing violation) → `"The file could not be accessed: {pdfPath}. It may be in use by another process."`
 2. **Invalid PDF format errors** (not a PDF, corrupt header) → `"The file could not be opened as a PDF."`
 
 Currently, all five services catch `Exception` broadly on file open and throw a single `ArgumentException("The file could not be opened as a PDF.")`, making it impossible to distinguish transient concurrency-related file access failures from permanent file format problems. This violates FRD-007 Requirement 9 and prevents diagnosis of concurrency issues when multiple tools access the same PDF in parallel.
 
-Both error messages must be consistent across both engines (PdfPig and Docnet).
+> **Note:** The PDFiumCore-based services (`RenderPagePreviewService`, `PageImagesService`) interact with PDFium through `PdfiumService`, which uses PDFium error codes (not .NET exceptions) for file-open classification. `FPDF_LoadDocument` returns null on failure, and `FPDF_GetLastError()` returns an error code (e.g., `2` = file access error, `3` = format error). The approach for these services differs from the PdfPig exception-type-based classification described below, but must produce the same two error messages.
+
+Both error messages must be consistent across both engines (PdfPig and PDFiumCore).
 
 ## Traces To
 
 - **FRD:** FRD-007 (Error Handling & Input Validation), Functional Requirement 9
-- **PRD:** REQ-8 (Robust error handling), REQ-10 (Concurrent tool safety)
+- **PRD:** REQ-7 (Robust error handling), REQ-9 (Concurrent tool safety)
 
 ## Dependencies
 
+- Task 012b (Shared PDFium Service) — must be implemented first
 - Task 013 (RenderPagePreview Service and DTO) — must be implemented first
 - Task 014 (RenderPagePreview Tool and Integration Tests) — existing tests will need updating
 
@@ -25,14 +28,14 @@ Both error messages must be consistent across both engines (PdfPig and Docnet).
 
 ### File-Open Exception Handling (All Services)
 
-1. In each service that opens a PDF file (`PdfInfoService`, `PageTextService`, `PageGraphicsService`, `PageImagesService`, `RenderPagePreviewService`), the file-open catch block must be updated to check the exception type **before** falling through to the generic invalid-PDF error:
+1. In each PdfPig-based service that opens a PDF file (`PdfInfoService`, `PageTextService`, `PageGraphicsService`), the file-open catch block must be updated to check the exception type **before** falling through to the generic invalid-PDF error:
 
    - Catch `IOException` or `UnauthorizedAccessException` first → throw `ArgumentException` with the message `"The file could not be accessed: {pdfPath}. It may be in use by another process."`.
    - For all other exceptions → throw `ArgumentException` with the message `"The file could not be opened as a PDF."`.
 
-2. The existing `when` guard in `RenderPagePreviewService` (`catch (Exception ex) when (ex is not ArgumentException)`) must be preserved — it ensures that `ArgumentException` from validation (e.g., page out of range) is not caught by the file-open handler.
+2. For the PdfPig-based services, which currently use an unguarded `catch (Exception)`, a `when (ex is not ArgumentException)` guard should be added to ensure that `ArgumentException` from validation (e.g., page out of range) is not caught by the file-open handler.
 
-3. For the four PdfPig-based services (`PdfInfoService`, `PageTextService`, `PageGraphicsService`, `PageImagesService`), which currently use an unguarded `catch (Exception)`, the same `when (ex is not ArgumentException)` guard should be added for consistency and safety.
+3. For `PdfiumService` (used by `RenderPagePreviewService` and `PageImagesService`), the file-open error classification must use PDFium error codes from `FPDF_GetLastError()` after a failed `FPDF_LoadDocument` call. Error code `2` (FPDF_ERR_FILE) maps to the I/O access error message; all other error codes map to the invalid PDF error message.
 
 ### Consistency Requirement
 
@@ -46,7 +49,7 @@ Both error messages must be consistent across both engines (PdfPig and Docnet).
 
 - [ ] Calling any tool when the PDF file is locked by another process returns the error message `"The file could not be accessed: {pdfPath}. It may be in use by another process."`.
 - [ ] Calling any tool with a non-PDF file (e.g., `tests/TestData/not-a-pdf.txt`) returns the error message `"The file could not be opened as a PDF."`.
-- [ ] The I/O access error message is identical across all five tools (PdfPig-based and Docnet-based).
+- [ ] The I/O access error message is identical across all five tools (PdfPig-based and PDFiumCore-based).
 - [ ] The invalid-PDF error message is identical across all five tools.
 - [ ] The two error messages are clearly distinguishable from each other.
 - [ ] All existing unit tests for all services pass (updated where necessary for the new exception handling structure).

@@ -386,6 +386,19 @@ public class RenderPagePreviewIntegrationTests : McpIntegrationTestBase
         Assert.NotNull(imageBlock);
         Assert.Equal("image/png", imageBlock.Value.GetProperty("mimeType").GetString());
 
+        // Verify PNG signature: 137 80 78 71 13 10 26 10
+        var base64Data = imageBlock.Value.GetProperty("data").GetString()!;
+        var bytes = Convert.FromBase64String(base64Data);
+        Assert.True(bytes.Length >= 8);
+        Assert.Equal(137, bytes[0]);
+        Assert.Equal(80, bytes[1]);  // P
+        Assert.Equal(78, bytes[2]);  // N
+        Assert.Equal(71, bytes[3]);  // G
+        Assert.Equal(13, bytes[4]);
+        Assert.Equal(10, bytes[5]);
+        Assert.Equal(26, bytes[6]);
+        Assert.Equal(10, bytes[7]);
+
         Assert.NotNull(textBlock);
         var metadata = JsonDocument.Parse(textBlock.Value.GetProperty("text").GetString()!);
         Assert.Equal("png", metadata.RootElement.GetProperty("format").GetString());

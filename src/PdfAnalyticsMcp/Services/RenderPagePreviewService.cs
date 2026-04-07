@@ -1,30 +1,26 @@
-using Docnet.Core;
-using Docnet.Core.Models;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using PdfAnalyticsMcp.Models;
+using PDFiumCore;
 
 namespace PdfAnalyticsMcp.Services;
 
-public class RenderPagePreviewService(IInputValidationService validationService, ILogger<RenderPagePreviewService> logger) : IRenderPagePreviewService
+public class RenderPagePreviewService(
+    IPdfiumService pdfiumService,
+    ILogger<RenderPagePreviewService> logger) : IRenderPagePreviewService
 {
-    private static readonly SemaphoreSlim _renderSemaphore = new(1, 1);
-
     public async Task<RenderPagePreviewResult> RenderAsync(string pdfPath, int page, int dpi, string format, int quality, CancellationToken cancellationToken = default)
     {
-        // Validate format before acquiring semaphore
+        // Validate format, DPI, and quality before acquiring semaphore
         string normalizedFormat = NormalizeFormat(format);
         string mimeType = normalizedFormat == "png" ? "image/png" : "image/jpeg";
-
-        // Validate quality before acquiring semaphore
-        if (quality < 1 || quality > 100)
-        {
-            throw new ArgumentException("Quality must be between 1 and 100.");
-        }
+        ValidateDpi(dpi);
+        ValidateQuality(quality);
 
         var raw = await RenderRawAsync(pdfPath, page, dpi, cancellationToken);
 
         byte[] imageData = normalizedFormat == "png"
-            ? PngEncoder.Encode(raw.BgraData, raw.Width, raw.Height)
+            ? PngEncoder.Encode(raw.BgraData, raw.Width, raw.Height, preserveAlpha: false)
             : JpegEncoder.Encode(raw.BgraData, raw.Width, raw.Height, quality);
 
         return new RenderPagePreviewResult(page, dpi, normalizedFormat, quality, raw.Width, raw.Height, imageData, mimeType);
@@ -32,77 +28,92 @@ public class RenderPagePreviewService(IInputValidationService validationService,
 
     public async Task<RenderRawResult> RenderRawAsync(string pdfPath, int page, int dpi, CancellationToken cancellationToken = default)
     {
-        validationService.ValidateFilePath(pdfPath);
+        ValidateDpi(dpi);
 
-        if (dpi < 72 || dpi > 600)
+        float scale = (float)(dpi / 72.0);
+
+        return await pdfiumService.ExecuteAsync(pdfPath, page, (document, loadedPage) =>
         {
-            throw new ArgumentException("DPI must be between 72 and 600.");
-        }
+            var (pageWidth, pageHeight) = pdfiumService.GetPageSize(document, page - 1);
+            int width = (int)(pageWidth * scale);
+            int height = (int)(pageHeight * scale);
 
-        double scalingFactor = dpi / 72.0;
+            var bitmap = fpdfview.FPDFBitmapCreateEx(width, height, 4, IntPtr.Zero, 0); // 4 = BGRA
+            if (bitmap == null)
+            {
+                throw new ArgumentException($"An error occurred rendering page {page}.");
+            }
 
-        await _renderSemaphore.WaitAsync(cancellationToken);
-        try
-        {
-            Docnet.Core.Readers.IDocReader docReader;
             try
             {
-                docReader = DocLib.Instance.GetDocReader(pdfPath, new PageDimensions(scalingFactor));
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                throw new ArgumentException($"The file could not be accessed: {pdfPath}. It may be in use by another process.");
-            }
-            catch (Exception ex) when (ex is not ArgumentException)
-            {
-                // Docnet/PDFium uses native code that may not throw .NET I/O exceptions for locked files.
-                // Probe file accessibility to distinguish I/O issues from format issues.
-                try
-                {
-                    using var _ = File.Open(pdfPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                }
-                catch (Exception probeEx) when (probeEx is IOException or UnauthorizedAccessException)
-                {
-                    throw new ArgumentException($"The file could not be accessed: {pdfPath}. It may be in use by another process.");
-                }
+                fpdfview.FPDFBitmapFillRect(bitmap, 0, 0, width, height, 0xFFFFFFFF);
 
-                throw new ArgumentException("The file could not be opened as a PDF.");
-            }
+                using var matrix = new FS_MATRIX_();
+                using var clipping = new FS_RECTF_();
+                matrix.A = scale;
+                matrix.B = 0;
+                matrix.C = 0;
+                matrix.D = scale;
+                matrix.E = 0;
+                matrix.F = 0;
+                clipping.Left = 0;
+                clipping.Bottom = 0;
+                clipping.Right = width;
+                clipping.Top = height;
 
-            using (docReader)
-            {
-                int pageCount = docReader.GetPageCount();
-                validationService.ValidatePageNumber(page, pageCount);
+                fpdfview.FPDF_RenderPageBitmapWithMatrix(bitmap, loadedPage, matrix, clipping, 0);
 
-                using var pageReader = docReader.GetPageReader(page - 1);
-
-                int width;
-                int height;
-                byte[] rawBytes;
-                try
-                {
-                    width = pageReader.GetPageWidth();
-                    height = pageReader.GetPageHeight();
-                    rawBytes = pageReader.GetImage();
-                }
-                catch (Exception ex) when (ex is not ArgumentException and not OperationCanceledException)
+                IntPtr buffer = fpdfview.FPDFBitmapGetBuffer(bitmap);
+                if (buffer == IntPtr.Zero)
                 {
                     throw new ArgumentException($"An error occurred rendering page {page}.");
                 }
 
-                if (rawBytes is null || rawBytes.Length == 0)
+                int stride = fpdfview.FPDFBitmapGetStride(bitmap);
+                int rowBytes = width * 4;
+                byte[] rawBytes = new byte[width * height * 4];
+
+                if (stride == rowBytes)
                 {
-                    throw new ArgumentException($"An error occurred rendering page {page}.");
+                    Marshal.Copy(buffer, rawBytes, 0, rawBytes.Length);
+                }
+                else
+                {
+                    // Copy row by row to remove alignment padding
+                    for (int row = 0; row < height; row++)
+                    {
+                        Marshal.Copy(buffer + row * stride, rawBytes, row * rowBytes, rowBytes);
+                    }
                 }
 
                 logger.LogDebug("Rendered page {Page} at {Dpi} DPI: {Width}x{Height} pixels.", page, dpi, width, height);
 
                 return new RenderRawResult(width, height, rawBytes);
             }
-        }
-        finally
+            catch (Exception ex) when (ex is not ArgumentException and not OperationCanceledException)
+            {
+                throw new ArgumentException($"An error occurred rendering page {page}.");
+            }
+            finally
+            {
+                fpdfview.FPDFBitmapDestroy(bitmap);
+            }
+        }, cancellationToken);
+    }
+
+    private static void ValidateDpi(int dpi)
+    {
+        if (dpi < 72 || dpi > 600)
         {
-            _renderSemaphore.Release();
+            throw new ArgumentException("DPI must be between 72 and 600.");
+        }
+    }
+
+    private static void ValidateQuality(int quality)
+    {
+        if (quality < 1 || quality > 100)
+        {
+            throw new ArgumentException("Quality must be between 1 and 100.");
         }
     }
 

@@ -6,11 +6,11 @@ Accepted
 
 ## Context
 
-PdfAnalyticsMcp is an MCP server that exposes PDF inspection tools for AI agents over stdio transport (REQ-9). We need to choose a programming language and runtime that supports:
+PdfAnalyticsMcp is an MCP server that exposes PDF inspection tools for AI agents over stdio transport (REQ-8). We need to choose a programming language and runtime that supports:
 
-- Building a local stdio-based MCP server (REQ-9)
+- Building a local stdio-based MCP server (REQ-8)
 - Reading and parsing PDF files with rich content extraction (REQ-1 through REQ-4)
-- Maintaining manageable response sizes via server-side processing (REQ-6)
+- Maintaining manageable response sizes via server-side processing (NFR-1)
 - Cross-platform operation (Windows, Linux, macOS)
 
 The concept document already assumes C# with PdfPig for PDF extraction, and the project stakeholder has specified latest C# as the technology base.

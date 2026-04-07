@@ -13,14 +13,14 @@ This task adds targeted exception handling around per-page operations in each se
 ## Traces To
 
 - **FRD:** FRD-007 (Error Handling & Input Validation), Functional Requirements 5 and 6
-- **PRD:** REQ-8 (Robust error handling)
+- **PRD:** REQ-7 (Robust error handling)
 
 ## Dependencies
 
 - Task 008 (GetPageText Service)
 - Task 010 (GetPageGraphics Service)
-- Task 015 (GetPageImages Service) — already has per-image handling; verify it covers page-level failures too
-- Task 013 (RenderPagePreview Service)
+- Task 013 (RenderPagePreview Service) — uses PDFiumCore
+- Task 015 (GetPageImages Service) — uses PDFiumCore; already has per-image handling; verify it covers page-level failures too
 
 ## Technical Requirements
 
@@ -44,7 +44,7 @@ This task adds targeted exception handling around per-page operations in each se
 
 ### Page Rendering (`RenderPagePreviewService`)
 
-7. After successfully opening the PDF with Docnet and retrieving the page reader, wrap the page reader operations — `pageReader.GetPageWidth()`, `pageReader.GetPageHeight()`, and `pageReader.GetImage()` — together in a single try-catch. All three calls operate on the same native page reader and can fail on corrupt pages, so they share one error boundary. If an exception occurs, throw `ArgumentException` with the message `"An error occurred rendering page {page}."`. Additionally, if `GetImage()` returns null or empty bytes, throw the same `ArgumentException` (this covers cases where PDFium silently fails without throwing).
+7. After successfully opening the PDF with PDFiumCore and loading the page, wrap the rendering operations — bitmap allocation (`FPDFBitmapCreateEx`), rendering (`FPDF_RenderPageBitmapWithMatrix`), and buffer access (`FPDFBitmapGetBuffer`) — together in a single try-catch. All three calls operate on the same native page and can fail on corrupt pages, so they share one error boundary. If an exception occurs, throw `ArgumentException` with the message `"An error occurred rendering page {page}."`. Additionally, if bitmap allocation or buffer access returns null/zero, throw the same `ArgumentException` (this covers cases where PDFium silently fails without throwing).
 
 8. The catch must not catch `ArgumentException` or `OperationCanceledException` itself.
 

@@ -17,8 +17,12 @@ internal static class PngEncoder
     /// <param name="bgraData">Raw pixel data in BGRA format (4 bytes per pixel).</param>
     /// <param name="width">Image width in pixels.</param>
     /// <param name="height">Image height in pixels.</param>
+    /// <param name="preserveAlpha">
+    /// When <c>false</c> (default): composites alpha against white and outputs RGB (color type 2) — used by page rendering.
+    /// When <c>true</c>: preserves the alpha channel and outputs RGBA (color type 6) — used by image extraction.
+    /// </param>
     /// <returns>A byte array containing a valid PNG file.</returns>
-    public static byte[] Encode(byte[] bgraData, int width, int height)
+    public static byte[] Encode(byte[] bgraData, int width, int height, bool preserveAlpha = false)
     {
         ArgumentNullException.ThrowIfNull(bgraData);
 
@@ -37,11 +41,12 @@ internal static class PngEncoder
         // PNG signature
         output.Write(PngSignature);
 
-        // IHDR chunk
-        WriteIhdrChunk(output, width, height);
+        // IHDR chunk: color type 6 (RGBA) when preserving alpha, 2 (RGB) otherwise
+        byte colorType = preserveAlpha ? (byte)6 : (byte)2;
+        WriteIhdrChunk(output, width, height, colorType);
 
         // IDAT chunk(s)
-        WriteIdatChunk(output, bgraData, width, height);
+        WriteIdatChunk(output, bgraData, width, height, preserveAlpha);
 
         // IEND chunk
         WriteIendChunk(output);
@@ -49,13 +54,13 @@ internal static class PngEncoder
         return output.ToArray();
     }
 
-    private static void WriteIhdrChunk(MemoryStream output, int width, int height)
+    private static void WriteIhdrChunk(MemoryStream output, int width, int height, byte colorType)
     {
         Span<byte> ihdrData = stackalloc byte[13];
         BinaryPrimitives.WriteInt32BigEndian(ihdrData[..4], width);
         BinaryPrimitives.WriteInt32BigEndian(ihdrData[4..8], height);
-        ihdrData[8] = 8;  // Bit depth
-        ihdrData[9] = 2;  // Color type: RGB (alpha composited against white)
+        ihdrData[8] = 8;         // Bit depth
+        ihdrData[9] = colorType; // Color type: 2 (RGB) or 6 (RGBA)
         ihdrData[10] = 0; // Compression method: deflate
         ihdrData[11] = 0; // Filter method
         ihdrData[12] = 0; // Interlace method: none
@@ -63,39 +68,67 @@ internal static class PngEncoder
         WriteChunk(output, "IHDR"u8, ihdrData);
     }
 
-    private static void WriteIdatChunk(MemoryStream output, byte[] bgraData, int width, int height)
+    private static void WriteIdatChunk(MemoryStream output, byte[] bgraData, int width, int height, bool preserveAlpha)
     {
         using var compressedStream = new MemoryStream();
         using (var zlibStream = new ZLibStream(compressedStream, CompressionLevel.Optimal, leaveOpen: true))
         {
             int srcRowBytes = width * 4;
-            int dstRowBytes = width * 3;
-            Span<byte> rgbRow = new byte[dstRowBytes];
 
-            for (int y = 0; y < height; y++)
+            if (preserveAlpha)
             {
-                // Write filter byte (0 = None)
-                zlibStream.WriteByte(0);
+                // RGBA mode: convert BGRA to RGBA, preserving alpha as-is
+                int dstRowBytes = width * 4;
+                Span<byte> rgbaRow = new byte[dstRowBytes];
 
-                // Convert BGRA to RGB, compositing alpha against white background
-                int rowStart = y * srcRowBytes;
-                for (int x = 0; x < width; x++)
+                for (int y = 0; y < height; y++)
                 {
-                    int srcOffset = rowStart + x * 4;
-                    int dstOffset = x * 3;
+                    zlibStream.WriteByte(0); // filter byte = None
 
-                    byte b = bgraData[srcOffset];
-                    byte g = bgraData[srcOffset + 1];
-                    byte r = bgraData[srcOffset + 2];
-                    byte a = bgraData[srcOffset + 3];
+                    int rowStart = y * srcRowBytes;
+                    for (int x = 0; x < width; x++)
+                    {
+                        int srcOffset = rowStart + x * 4;
+                        int dstOffset = x * 4;
 
-                    // Alpha-composite against white (255): out = src * a/255 + 255 * (1 - a/255)
-                    rgbRow[dstOffset] = (byte)((r * a + 255 * (255 - a)) / 255);
-                    rgbRow[dstOffset + 1] = (byte)((g * a + 255 * (255 - a)) / 255);
-                    rgbRow[dstOffset + 2] = (byte)((b * a + 255 * (255 - a)) / 255);
+                        rgbaRow[dstOffset] = bgraData[srcOffset + 2];     // R
+                        rgbaRow[dstOffset + 1] = bgraData[srcOffset + 1]; // G
+                        rgbaRow[dstOffset + 2] = bgraData[srcOffset];     // B
+                        rgbaRow[dstOffset + 3] = bgraData[srcOffset + 3]; // A
+                    }
+
+                    zlibStream.Write(rgbaRow);
                 }
+            }
+            else
+            {
+                // RGB mode: convert BGRA to RGB, compositing alpha against white background
+                int dstRowBytes = width * 3;
+                Span<byte> rgbRow = new byte[dstRowBytes];
 
-                zlibStream.Write(rgbRow);
+                for (int y = 0; y < height; y++)
+                {
+                    zlibStream.WriteByte(0); // filter byte = None
+
+                    int rowStart = y * srcRowBytes;
+                    for (int x = 0; x < width; x++)
+                    {
+                        int srcOffset = rowStart + x * 4;
+                        int dstOffset = x * 3;
+
+                        byte b = bgraData[srcOffset];
+                        byte g = bgraData[srcOffset + 1];
+                        byte r = bgraData[srcOffset + 2];
+                        byte a = bgraData[srcOffset + 3];
+
+                        // Alpha-composite against white (255): out = src * a/255 + 255 * (1 - a/255)
+                        rgbRow[dstOffset] = (byte)((r * a + 255 * (255 - a)) / 255);
+                        rgbRow[dstOffset + 1] = (byte)((g * a + 255 * (255 - a)) / 255);
+                        rgbRow[dstOffset + 2] = (byte)((b * a + 255 * (255 - a)) / 255);
+                    }
+
+                    zlibStream.Write(rgbRow);
+                }
             }
         }
 

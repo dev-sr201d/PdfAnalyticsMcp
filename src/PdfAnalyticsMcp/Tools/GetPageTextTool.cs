@@ -24,6 +24,7 @@ public class GetPageTextTool(IInputValidationService validationService, IPageTex
 
             if (outputFile is not null)
             {
+                validationService.ValidateOutputFile(outputFile);
                 var summary = pageTextService.ExtractToFile(pdfPath, page, granularity, outputFile);
                 return JsonSerializer.Serialize(summary, SerializerConfig.Options);
             }

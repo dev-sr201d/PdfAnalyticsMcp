@@ -2,14 +2,19 @@
 
 ## Traces To
 
-- **PRD:** REQ-4 (Image extraction), REQ-6 (Data volume management), REQ-7 (Page-by-page processing), REQ-8 (Robust error handling), REQ-10 (Concurrent tool safety)
-- **ADRs:** ADR-0002 (PdfPig), ADR-0004 (Docnet/PDF rendering), ADR-0005 (Serialization)
+- **PRD:** REQ-4 (Image extraction), NFR-1 (Data volume management), REQ-6 (Page-by-page processing), REQ-7 (Robust error handling), REQ-9 (Concurrent tool safety)
+- **ADRs:** ADR-0004 (PDFiumCore/PDF rendering and image extraction), ADR-0005 (Serialization)
 
 ## Summary
 
-Provide a tool that returns embedded images on a single PDF page with their bounding boxes and metadata. The agent uses image positions to understand text flow around images. When an output directory is provided, the tool extracts each image as a PNG file to disk, enabling the agent to reference or embed them when converting to other formats.
+Provide a tool that returns embedded images on a single PDF page with their bounding boxes and metadata. The agent uses image positions to understand text flow around images. When an output directory is provided, the tool extracts each image to disk, enabling the agent to reference or embed them when converting to other formats.
 
-For images that PdfPig cannot directly convert to PNG, the tool uses the raw BGRA rendering capability from Feature 005 (Page Rendering) to render the page and crop individual images from the rendered output.
+Image discovery and extraction uses PDFiumCore's `fpdf_edit` API, which provides per-object access to page content. The extraction strategy is optimized per encoding:
+
+- **JPEG images** (single `DCTDecode` filter): The raw JPEG bytes are extracted directly via `FPDFImageObj_GetImageDataRaw()`, preserving the original encoding with zero quality loss. The output file uses a `.jpg` extension.
+- **All other encodings** (PNG, JPEG2000, JBIG2, CMYK, etc.): Each image object is rendered individually via `FPDFImageObj_GetRenderedBitmap()`, producing a clean BGRA bitmap with the image's mask and transformation matrix applied. The bitmap is encoded as PNG with a `.png` extension. If `GetRenderedBitmap` returns null (which can occur for certain image objects with complex clipping contexts), the service falls back to `FPDFImageObj_GetBitmap()`, which returns the raw image at native resolution without mask/matrix processing. The fallback bitmap may be in BGR or grayscale format, which is normalized to BGRA before PNG encoding.
+
+> **PRD REQ-4 fallback note:** REQ-4 requires an alternative extraction method when direct PNG conversion is not possible. This is addressed through multiple extraction strategies: (1) raw JPEG extraction for DCTDecode images bypasses rendering entirely, (2) `FPDFImageObj_GetRenderedBitmap()` handles all other formats through PDFium's decoder pipeline, and (3) `FPDFImageObj_GetBitmap()` provides a final fallback when rendered bitmap extraction fails. Together, these cover virtually all image encodings found in real-world PDFs.
 
 ## Inputs
 
@@ -53,55 +58,58 @@ The same JSON structure, but each image element includes a `file` field with the
 | `h` | double | Display height on the page (PDF points) |
 | `pixelWidth` | int | Image width in pixels |
 | `pixelHeight` | int | Image height in pixels |
-| `bitsPerComponent` | int | Bits per color component (e.g., 8 for typical images) |
-| `file` | string? | Absolute path to the extracted PNG file (only when `outputPath` is provided and extraction succeeded) |
+| `bitsPerPixel` | int | Bits per pixel as reported by PDFiumCore's `FPDF_IMAGEOBJ_METADATA.bits_per_pixel` (e.g., 32 for BGRA, 24 for RGB, 8 for grayscale) |
+| `file` | string? | Absolute path to the extracted image file — `.jpg` for JPEG-encoded images, `.png` for all others (only when `outputPath` is provided and extraction succeeded) |
+
+> **Note:** The `colorspace` value available from `FPDFImageObj_GetImageMetadata()` is intentionally omitted from the response. The colorspace is an internal PDF encoding detail (e.g., DeviceRGB, DeviceCMYK, ICCBased) that is not actionable for the AI agent — the agent works with the rendered image, which is always BGRA regardless of source colorspace. Omitting it keeps the payload focused on layout-relevant data.
 
 ## Functional Requirements
 
 ### Core Metadata Extraction
 
-1. The tool must operate on a single page per call (REQ-7).
-2. The tool must use `page.GetImages()` from PdfPig to enumerate embedded images.
-3. Each image's bounding box must be extracted from `image.Bounds` (a `PdfRectangle`).
-4. Pixel dimensions must be extracted from the image's intrinsic resolution properties.
-5. When `outputPath` is not provided, the `file` field must be omitted from the response. This keeps responses small for the common case where the agent only needs to know image positions (REQ-6).
+1. The tool must operate on a single page per call (REQ-6).
+2. The tool must use PDFiumCore's `fpdf_edit` API to enumerate page objects via `FPDFPage_CountObjects()` / `FPDFPage_GetObject()` and filter for image objects where `FPDFPageObj_GetType()` returns `FPDF_PAGEOBJ_IMAGE` (value 3). The enumeration must recursively traverse Form XObjects (`FPDF_PAGEOBJ_FORM`, value 5) using `FPDFFormObj_CountObjects()` / `FPDFFormObj_GetObject()` to discover images embedded at any nesting depth (see requirement 16).
+3. Each image's bounding box must be extracted via `FPDFPageObj_GetBounds()`, which returns coordinates in PDF page space (points).
+4. Pixel dimensions and bits per pixel must be extracted via `FPDFImageObj_GetImageMetadata()`. The `bits_per_pixel` value from the metadata struct is returned directly as `bitsPerPixel` in the response. The `colorspace` value is extracted for internal use but is not included in the response (see output schema note).
+5. When `outputPath` is not provided, the `file` field must be omitted from the response. This keeps responses small for the common case where the agent only needs to know image positions (NFR-1).
 6. Coordinates must be rounded to 1 decimal place.
 7. If a page has no images, the `images` array must be empty (not null).
 
 ### File Naming Convention
 
-8. When `outputPath` is provided, extracted images must be written as PNG files to that directory using the naming pattern: `{pdfStem}_p{page}_img{index}.png` — where `{pdfStem}` is the PDF filename without its extension, `{page}` is the 1-based page number, and `{index}` is the 1-based image index (in the order returned by PdfPig). Example: for `report.pdf`, page 3, second image → `report_p3_img2.png`.
+8. When `outputPath` is provided, extracted images must be written to that directory using the naming pattern: `{pdfStem}_p{page}_img{index}.{ext}` — where `{pdfStem}` is the PDF filename without its extension, `{page}` is the 1-based page number, `{index}` is the 1-based image index (in discovery order, depth-first pre-order traversal of the page object tree including Form XObjects), and `{ext}` is `jpg` for JPEG-encoded images (single `DCTDecode` filter) or `png` for all other encodings. The `{index}` is assigned sequentially to each *unique* image object — when the same image object appears multiple times (see requirement 17), all occurrences share the same `{index}` and the same output file. Examples: for `report.pdf`, page 3, second unique image (JPEG) → `report_p3_img2.jpg`; third unique image (non-JPEG) → `report_p3_img3.png`.
 9. The `{pdfStem}` component must be sanitized to remove or replace characters that are invalid in file names on the host OS. If the sanitized stem is empty (e.g., the PDF filename consists entirely of special characters), a fallback stem such as `"pdf"` must be used.
-10. The `file` field in the response must contain the absolute path to the written PNG file.
+10. The `file` field in the response must contain the absolute path to the written image file (`.jpg` or `.png`).
 
-### Image Data Extraction (Direct)
+### Image Data Extraction
 
-11. When `outputPath` is provided, the tool must first attempt PNG conversion via `image.TryGetPng()` (direct extraction from the PDF image stream) and write the result to disk.
+11. When `outputPath` is provided, the tool must extract each image using the optimal strategy for its encoding:
+    - **JPEG images** (exactly one compression filter, `DCTDecode`): Extract the raw compressed stream bytes via `FPDFImageObj_GetImageDataRaw()` and write directly to disk with a `.jpg` extension. This avoids bitmap rendering and re-encoding entirely, preserving the original JPEG data with zero quality loss and producing significantly smaller output files.
+    - **All other images**: Render via `FPDFImageObj_GetRenderedBitmap(document, page, imageObject)`, which produces a clean BGRA bitmap with the image's mask and transformation matrix applied. Encode as PNG, preserving any alpha transparency. No compositing against a white background is performed — unlike page rendering (FRD-005), extracted images may contain transparent regions.
+12. The rendered bitmap is produced at the image's native resolution — no DPI parameter is needed for image extraction.
+13. All PDFiumCore operations (document loading, page object enumeration, image rendering) must be serialized through the same semaphore used by the rendering service (FRD-005), since PDFium is not thread-safe.
+14. If rendering fails for an individual image (e.g., `FPDFImageObj_GetRenderedBitmap()` returns null), the service must fall back to `FPDFImageObj_GetBitmap()` which returns the raw image at native resolution without mask/matrix processing. The fallback bitmap may be in BGR or grayscale format rather than BGRA; these formats must be normalized to BGRA before PNG encoding. If both `GetRenderedBitmap` and `GetBitmap` return null, the image's `file` field must be null. Rendering failures must not cause the entire tool call to fail — other images and all metadata must still be returned.
+15. **PNG encoding** must use the same lightweight manual PNG writer used by FRD-005, built on `System.IO.Compression.ZLibStream` (built into .NET 6+). Unlike FRD-005's page rendering (which composites BGRA onto white to produce opaque RGB output), image extraction must encode **RGBA** (4-channel) output to preserve any alpha transparency in the extracted image. The PNG encoder must support both RGB (3-channel, for page rendering) and RGBA (4-channel, for image extraction) modes.
+16. The tool must recursively traverse Form XObjects to discover all embedded images, using **depth-first pre-order traversal** (matching the natural PDF content stream order) to ensure deterministic image indexing across runs. PDF pages frequently embed content inside Form XObjects (nested content streams), especially in complex documents with layers, transparency groups, or repeated content. When `FPDFPageObj_GetType()` returns `FPDF_PAGEOBJ_FORM` (value 5) for a page object, the tool must recurse into it using `FPDFFormObj_CountObjects()` / `FPDFFormObj_GetObject()` to enumerate its child objects, repeating recursively for any nested Form XObjects. Image objects found at any nesting depth must be included in the response with the same metadata and extraction behavior as top-level images. The bounding box from `FPDFPageObj_GetBounds()` returns page-space coordinates regardless of nesting depth, so no manual coordinate transformation is needed. The recursion depth must be capped at a reasonable limit (e.g., 64 levels) to guard against malformed or circular PDF structures; objects beyond this depth are silently skipped.
+17. Form XObjects can be referenced multiple times on the same page (e.g., a letterhead logo), causing the same underlying image object to appear at multiple positions. The tool must report **every occurrence** in the response — each with its own bounding box and metadata — since the agent needs all positions to understand text flow. However, when `outputPath` is provided, the image must be **rendered and written to disk only once** per unique image object. All occurrences of the same image object must share the same `file` path and the same image index in the file naming convention (see requirement 8). Image object identity can be determined by comparing the native object pointers returned by `FPDFPage_GetObject()` / `FPDFFormObj_GetObject()`.
 
-### Render-Based Fallback for Image Data Extraction
+### Cancellation
 
-PdfPig's `TryGetPng()` only succeeds for a subset of PDF image encodings. Many real-world PDFs use image formats (JBIG2, CCITT fax, certain colorspace/filter combinations) that PdfPig cannot convert to PNG. To provide reliable image data extraction, the tool uses the raw BGRA rendering capability from Feature 005 to render the page and crop individual images from the rendered output.
-
-12. When `outputPath` is provided and `TryGetPng()` fails for one or more images, the tool must render the page using the raw BGRA rendering method from the rendering service (FRD-005, requirement 14) and crop each failed image from the rendered page using its bounding box.
-13. If the page contains multiple images that require fallback extraction, the page must be rendered only once and all fallback crops taken from that single render.
-14. The rendered crop must use the image's bounding box (in PDF points) mapped to pixel coordinates in the rendered image. The PDF coordinate system (origin at bottom-left, Y increasing upward) must be correctly mapped to the pixel coordinate system (origin at top-left, Y increasing downward).
-15. The render DPI for fallback extraction should be chosen to approximate the native resolution of the images being cropped, capped at a maximum of 600 DPI and floored at 72 DPI. When multiple images need fallback extraction, the DPI should be chosen to best serve the highest-resolution image. If native resolution cannot be determined, the default rendering DPI of 150 must be used.
-16. The crop region must be clamped to the page render boundaries to handle images whose bounding boxes extend slightly beyond the page edges.
-17. The cropped BGRA pixel data must be composited against a white background (matching the page render behavior) and encoded as PNG.
-18. If the fallback rendering itself fails (e.g., Docnet cannot open the file or render the page), the image's `file` field must be null. The fallback must not cause the entire tool call to fail — other images and all metadata must still be returned.
-19. The fallback rendering is automatically serialized through the rendering service's semaphore (FRD-005, requirement 10) — no additional concurrency handling is needed in this feature.
-20. The `file` field must not indicate to the agent whether the PNG was obtained via direct extraction or render-based fallback. The result is a PNG file in either case.
+18. The tool must accept a `CancellationToken` and support cancellation while waiting for the PDFium semaphore. If a request is cancelled while queued behind the semaphore, it must return promptly without blocking until the current operation completes. This is consistent with the cancellation behavior specified for `RenderPagePreview` (FRD-005, requirements 21–22).
 
 ### Output Path Validation
 
-21. The `outputPath` must be validated: it must be an absolute path, must not contain path traversal sequences (`..`), and the directory must exist.
-22. If a file with the same name already exists in the output directory, it must be overwritten.
+19. The `outputPath` must be validated: it must be an absolute path, must not contain path traversal sequences (`..`), and the directory must exist. Specific error messages:
+    - If `outputPath` is not an absolute path: `"outputPath must be an absolute path."`
+    - If `outputPath` contains `..`: `"Invalid output path."`
+    - If the directory does not exist: `"Output directory does not exist: {outputPath}"`
+20. If a file with the same name already exists in the output directory, it must be overwritten.
 
 ### Error Handling
 
-23. If metadata extraction fails for an individual image (e.g., PdfPig throws while reading the image's bounding box or pixel dimensions), that image must be skipped entirely. Remaining images on the page must still be returned.
-24. If writing a PNG file to disk fails (e.g., permissions, disk full), the image's `file` field must be null. The error must not cause the entire tool call to fail — other images and all metadata must still be returned.
-25. Standard file path and page number validation rules apply as defined in FRD-007.
+21. If metadata extraction fails for an individual image (e.g., `FPDFPageObj_GetBounds()` or `FPDFImageObj_GetImageMetadata()` fails), that image must be skipped entirely. Remaining images on the page must still be returned.
+22. If writing an image file to disk fails (e.g., permissions, disk full), the image's `file` field must be null for all occurrences of that image object. The error must not cause the entire tool call to fail — other images and all metadata must still be returned.
+23. Standard file path and page number validation rules apply as defined in FRD-007.
 
 ## Response Size Considerations
 
@@ -109,16 +117,13 @@ The inline JSON response always contains only image metadata (bounding boxes, pi
 
 Image data is written to disk as separate PNG files, keeping the MCP response payload small and avoiding the 33% base64 encoding overhead that inline image data would incur.
 
-The render-based fallback may produce slightly larger PNG files than direct extraction for the same image, because the rendered crop includes sub-pixel antialiasing artifacts from the page render. This is an acceptable trade-off for being able to extract images that would otherwise be unavailable.
-
 ## Dependencies
 
 - Feature 001 (MCP Server Host) must be complete.
-- Feature 005 (Page Rendering) must be complete — the rendering service's raw BGRA buffer API is used for the render-based fallback.
-- `UglyToad.PdfPig` NuGet package.
-- `Docnet.Core` NuGet package (via Feature 005's rendering service).
+- Feature 005 (RenderPagePreview) must be complete — this feature uses the shared PDFium service and PNG encoder introduced by Feature 005.
+- `PDFiumCore` NuGet package (for image discovery, metadata extraction, and per-image bitmap rendering).
 
-> **Note:** This feature reuses the shared infrastructure established by Feature 002: the centralized serialization options, coordinate rounding utility, and input validation service. The render-based fallback delegates to the rendering service from Feature 005, which encapsulates the Docnet lifecycle, rendering semaphore, and native resource management.
+> **Note:** This feature reuses the shared infrastructure established by Feature 002: the centralized serialization options, coordinate rounding utility, and input validation service. PDFiumCore operations must be serialized through the shared PDFium service's semaphore, since all features use the same underlying PDFium native library. PNG encoding shares the same manual PNG writer introduced by Feature 005, extended to support RGBA (4-channel) output for image extraction.
 
 ## Acceptance Criteria
 
@@ -130,27 +135,29 @@ The render-based fallback may produce slightly larger PNG files than direct extr
 - [ ] The response is well under 30 KB for any typical page (image data is never inline).
 
 ### File-Based Image Extraction
-- [ ] When `outputPath` is provided, images are written as PNG files to the specified directory.
-- [ ] File names follow the pattern `{pdfStem}_p{page}_img{index}.png`.
-- [ ] The `file` field in each image element contains the absolute path to the written PNG.
-- [ ] Images where direct PNG conversion succeeds are written from `TryGetPng()` output.
+- [ ] When `outputPath` is provided, images are written to the specified directory as `.jpg` (for JPEG-encoded images) or `.png` (for all other encodings).
+- [ ] JPEG-encoded images (single `DCTDecode` filter) are extracted as `.jpg` files using raw byte passthrough via `FPDFImageObj_GetImageDataRaw()`, preserving original quality with zero re-encoding loss.
+- [ ] File names follow the pattern `{pdfStem}_p{page}_img{index}.{ext}` where `{ext}` is `jpg` for JPEG-encoded images or `png` for all others.
+- [ ] The `file` field in each image element contains the absolute path to the written image file.
+- [ ] Non-JPEG images are extracted individually via `FPDFImageObj_GetRenderedBitmap()`, producing a clean bitmap without surrounding text or graphics.
 - [ ] Existing files with the same name are overwritten without error.
-
-### Render-Based Fallback
-- [ ] When `outputPath` is provided and `TryGetPng()` fails for an image, the tool falls back to render-and-crop and writes a valid PNG file for that image.
-- [ ] When multiple images on a page require fallback, the page is rendered only once (not once per image).
-- [ ] The cropped image region correctly maps the PDF bounding box to pixel coordinates, accounting for the Y-axis inversion between PDF and pixel coordinate systems.
-- [ ] Crop regions that extend beyond the rendered page boundaries are clamped rather than causing an error.
-- [ ] If fallback rendering itself fails, the affected image's `file` field is null but the tool call still succeeds with all metadata intact.
-- [ ] Fallback rendering is serialized through the rendering service's semaphore.
-- [ ] The fallback-produced PNG is a valid image that can be decoded by standard image viewers.
+- [ ] If rendering fails for an individual image, the `file` field is null but the tool call still succeeds with all metadata intact.
+- [ ] Image extraction is serialized through the PDFium semaphore.
+- [ ] Each extracted image file (PNG or JPEG) is valid and can be decoded by standard image viewers.
+- [ ] When the same image object appears multiple times on a page (e.g., via repeated Form XObject references), all occurrences are reported with their individual bounding boxes, but the image is rendered and written to disk only once.
+- [ ] All occurrences of a duplicated image share the same `file` path and image index.
 
 ### Output Path Validation
-- [ ] The `outputPath` parameter rejects relative paths and path traversal sequences.
-- [ ] A non-existent output directory produces a clear error message.
+- [ ] The `outputPath` parameter rejects relative paths with error message `"outputPath must be an absolute path."`
+- [ ] The `outputPath` parameter rejects paths containing `..` with error message `"Invalid output path."`
+- [ ] A non-existent output directory produces error message `"Output directory does not exist: {outputPath}"`.
 
 ### Error Handling
 - [ ] When metadata extraction fails for an individual image, that image is skipped and remaining images are still returned.
-- [ ] When writing a PNG file to disk fails, the image's `file` field is null but the tool call succeeds with all metadata.
+- [ ] When writing an image file to disk fails, the image's `file` field is null but the tool call succeeds with all metadata.
 - [ ] When `outputPath` is provided but the page has no images, the tool succeeds with an empty `images` array and no files are written.
 - [ ] File name sanitization handles PDF filenames with special characters (spaces, unicode, filesystem-illegal characters) without errors.
+- [ ] Images embedded inside Form XObjects (nested content streams) are discovered and included in the response.
+- [ ] Form XObject recursion handles multiple nesting levels without errors.
+- [ ] Recursion depth is capped; deeply nested structures beyond the limit do not crash the server.
+- [ ] A cancelled image extraction request that is waiting for the PDFium semaphore returns promptly without blocking.

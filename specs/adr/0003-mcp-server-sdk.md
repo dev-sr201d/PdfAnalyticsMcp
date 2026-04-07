@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The server must implement the Model Context Protocol (MCP) to expose PDF inspection tools to AI agents. Per REQ-9, it must operate over stdio transport as a local child process. We need an SDK that:
+The server must implement the Model Context Protocol (MCP) to expose PDF inspection tools to AI agents. Per REQ-8, it must operate over stdio transport as a local child process. We need an SDK that:
 
 - Supports the MCP protocol specification for tool discovery and invocation
 - Provides stdio server transport out of the box
@@ -31,7 +31,7 @@ Use the **official Model Context Protocol C# SDK** (`ModelContextProtocol` NuGet
 
 ## Consequences
 
-- The SDK provides `WithStdioServerTransport()` for stdio communication, directly satisfying REQ-9.
+- The SDK provides `WithStdioServerTransport()` for stdio communication, directly satisfying REQ-8.
 - Tools are registered via `[McpServerToolType]` and `[McpServerTool]` attributes with `[Description]` for parameter documentation, matching the tool signatures already designed in the concept document.
 - Tool discovery uses `WithToolsFromAssembly()` or `WithTools<T>()` for automatic registration.
 - The SDK integrates with `Microsoft.Extensions.Hosting`, providing standard .NET application lifecycle management, logging (with console logs routed to stderr to avoid polluting the stdio MCP channel), and dependency injection.

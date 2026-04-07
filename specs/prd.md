@@ -49,31 +49,38 @@ The primary users are **AI agents** (LLM-based systems) that consume MCP tools, 
 
 | Metric | Target |
 |--------|--------|
-| An AI agent using the tools can correctly identify tables, sidebars, multi-column layouts, and heading hierarchy on a set of representative complex PDFs | ≥ 85% structural accuracy |
+| An AI agent using the tools can correctly identify tables, sidebars, multi-column layouts, and heading hierarchy on a curated set of ≥ 10 representative complex PDFs, evaluated by manual review against expected reference output | ≥ 85% structural accuracy |
 | Average response size per tool call for a typical page (at `words` granularity) | ≤ 30 KB |
 | Agent can produce a Markdown file from a 10-page complex PDF using only the MCP tools, with no manual intervention beyond the initial prompt | End-to-end completion |
 | All five tool types return valid, parseable responses for any well-formed PDF without errors | 100% reliability on well-formed input |
 
 ## 4. High-Level Requirements
 
-- [REQ-1] **Document metadata retrieval** — The server must provide a tool that returns document-level information including page count, predominant page dimensions (with only non-conforming pages listed individually), document title, author, subject, keywords, creator, producer, and the bookmarks/outline tree, so the agent can plan its page-by-page traversal.
+- [REQ-1] **Document metadata retrieval** — The server must provide a tool that returns document-level information including page count, per-page dimensions (summarized to avoid redundancy when most pages share the same size), document title, author, subject, keywords, creator, producer, and the bookmarks/outline tree, so the agent can plan its page-by-page traversal.
 
 - [REQ-2] **Rich text extraction** — The server must provide a tool that returns text content from a specified page with full positional and stylistic metadata (x, y, width, height, font name, font size, bold/italic flags, and RGB fill color) for each text element. The tool must support configurable granularity (at minimum `words` and `letters` levels). For pages that exceed the inline size target, the tool must support an optional file-based output mode that writes the full result to a caller-specified path and returns a compact summary inline.
 
 - [REQ-3] **Graphics extraction and classification** — The server must provide a tool that returns all drawn graphic elements on a specified page, classified into meaningful shapes: filled/stroked rectangles (with bounds, fill color, stroke color, stroke width), lines (start/end points, stroke color, width, dash pattern), and complex paths (bounding box and vertex count). Vertex count is provided instead of a full vertex list to manage payload size for complex shapes. This is essential for identifying table borders, sidebars, callout boxes, section dividers, and background fills.
 
-- [REQ-4] **Image extraction** — The server must provide a tool that returns embedded images on a specified page, including each image's bounding box (position and size on the page), pixel dimensions, and bits per component. The tool must support an optional output directory parameter; when provided, the tool extracts each image as a PNG file to disk using a deterministic naming convention (based on the PDF filename, page number, and image index) and includes the file paths in the response. Image data is never returned inline — it is always written to disk when requested, keeping MCP responses small. When direct PNG conversion from the PDF image stream is not possible, the tool must use an alternative extraction method (rendering the page and cropping the image region) to maximize the number of images for which files can be provided. The extraction method must be transparent to the agent — the result is a PNG file regardless of how it was produced.
+- [REQ-4] **Image extraction** — The server must provide a tool that returns embedded images on a specified page, including each image's bounding box (position and size on the page), pixel dimensions, and bits per component. The tool must support an optional output directory parameter; when provided, the tool extracts each image to disk using a deterministic naming convention (based on the PDF filename, page number, and image index) and includes the file paths in the response. Image extraction must preserve original image quality where feasible and degrade gracefully (e.g., re-encoding to a lossless format) when lossless passthrough is not possible. Image data is never returned inline — it is always written to disk when requested, keeping MCP responses small. If the primary extraction method fails for an image, the tool must use a fallback method to maximize the number of images for which files can be provided. The extraction method must be transparent to the agent — the result is a valid image file regardless of how it was produced.
 
 - [REQ-5] **Page rendering** — The server must provide a tool that renders a specified page as an image at a configurable DPI, enabling multimodal AI models to visually inspect the page layout. The tool must support both PNG and JPEG output formats so the agent can choose the best trade-off between lossless fidelity and file size. The tool must support a quality parameter that controls JPEG compression level, allowing agents to further reduce image size when lossless precision is not needed (e.g., layout verification of pages with large multi-colored images). This capability may rely on an external rendering dependency.
 
-- [REQ-6] **Data volume management** — The server must default to the most practical granularity level (words, not letters) and classify graphics server-side (rather than returning raw operations). Response sizes must remain practical for LLM consumption. Server-side classification into rectangles, lines, and complex paths (with vertex counts rather than full vertex lists) provides sufficient data reduction for most pages. For dense pages that exceed the inline size target, tools may support an optional file-based output mode (see REQ-2) to offload the full payload to disk while returning a compact summary inline.
+- [REQ-6] **Page-by-page processing** — All page-content tools must operate on a single specified page at a time. The server must never load or return an entire document's content in one call.
 
-- [REQ-7] **Page-by-page processing** — All page-content tools must operate on a single specified page at a time. The server must never load or return an entire document's content in one call.
+- [REQ-7] **Robust error handling** — The server must return clear, descriptive error messages when a PDF cannot be opened, a page number is out of range, or an extraction operation fails for a specific page.
 
-- [REQ-8] **Robust error handling** — The server must return clear, descriptive error messages when a PDF cannot be opened, a page number is out of range, or an extraction operation fails for a specific page.
+- [REQ-8] **Local stdio transport** — The server must operate as a local MCP server using stdio as its transport. MCP-compatible clients must be able to launch the server as a child process and communicate with it over stdin/stdout without requiring network setup, HTTP endpoints, or additional infrastructure.
 
-- [REQ-9] **Local stdio transport** — The server must operate as a local MCP server using stdio as its transport. MCP-compatible clients must be able to launch the server as a child process and communicate with it over stdin/stdout without requiring network setup, HTTP endpoints, or additional infrastructure.
-- [REQ-10] **Concurrent tool safety** — The server must remain correct and stable when the MCP client invokes multiple tools in parallel against the same PDF file. Concurrent tool calls must not cause crashes, data corruption, or transient failures due to resource contention.
+- [REQ-9] **Concurrent tool safety** — The server must remain correct and stable when the MCP client invokes multiple tools in parallel against the same PDF file. Concurrent tool calls must not cause crashes, data corruption, or transient failures due to resource contention.
+
+### Non-Functional Requirements
+
+- [NFR-1] **Data volume management** — The server must default to the most practical granularity level (words, not letters) and classify graphics server-side (rather than returning raw operations). Response sizes must remain practical for LLM consumption. Server-side classification into rectangles, lines, and complex paths (with vertex counts rather than full vertex lists) provides sufficient data reduction for most pages. For dense pages that exceed the inline size target, tools must support an optional file-based output mode (see REQ-2) to offload the full payload to disk while returning a compact summary inline.
+
+- [NFR-2] **Response latency** — Individual tool calls should complete within a few seconds for typical pages. Page rendering and image extraction may take longer due to rasterization but should remain responsive for single-page operations.
+
+- [NFR-3] **Response schema stability** — Tool response schemas are considered a public contract consumed by AI agents. Breaking changes to response shapes (removing fields, renaming properties, changing types) require a major version bump and must be documented.
 
 ## 5. User Stories
 
@@ -98,7 +105,7 @@ so that I can understand text flow around images and include image references in
 ```
 
 ```gherkin
-As an AI agent, I want to optionally extract images to an output directory as PNG files,
+As an AI agent, I want to optionally extract images to an output directory as image files (JPEG or PNG depending on encoding),
 so that I can reference or embed them when converting a PDF to another format.
 ```
 
@@ -135,7 +142,7 @@ so that I get a readable, editable document that preserves the original structur
 ### Constraints
 
 - Page rendering (REQ-5) requires an external rendering dependency beyond the core PDF parsing library, which may introduce platform-specific native dependencies.
-- Very dense pages (3,000+ words, hundreds of graphic elements) may produce large responses; the server must provide practical defaults and options to manage volume.
+- Very dense pages (3,000+ words, hundreds of graphic elements) may produce large responses. The server manages this through word-level default granularity, server-side graphics classification, and file-based output mode for tools that support it (see NFR-1). There is no hard truncation — the file-based output mode is the escape valve for oversized pages.
 - The server operates on one PDF page per tool call; agents processing large documents will need to make many sequential calls.
 - The server performs read-only operations; it cannot modify PDF files.
 - Letter-level granularity may produce response sizes 5× larger than word-level; agents should only request it when necessary.

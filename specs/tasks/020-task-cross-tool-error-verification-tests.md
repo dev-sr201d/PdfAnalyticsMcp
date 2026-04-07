@@ -9,7 +9,7 @@ This task creates a dedicated integration test class that verifies the FRD-007 a
 ## Traces To
 
 - **FRD:** FRD-007 (Error Handling & Input Validation), all acceptance criteria
-- **PRD:** REQ-8 (Robust error handling)
+- **PRD:** REQ-7 (Robust error handling)
 
 ## Dependencies
 
@@ -43,7 +43,7 @@ This task creates a dedicated integration test class that verifies the FRD-007 a
    - Call any tool with a non-PDF file → expect `"The file could not be opened as a PDF."`.
    - Call the same tool with a locked file (use a `FileStream` opened with `FileShare.None` to hold an exclusive lock) → expect `"The file could not be accessed: {pdfPath}. It may be in use by another process."`.
    - Assert the two messages are different from each other.
-   - Repeat for at least one PdfPig-based tool and one Docnet-based tool (`RenderPagePreview`) to verify both engines classify errors consistently.
+   - Repeat for at least one PdfPig-based tool and one PDFiumCore-based tool (`RenderPagePreview`) to verify both engines classify errors consistently.
 
 ### Server Continuity Tests
 
@@ -64,10 +64,10 @@ This task creates a dedicated integration test class that verifies the FRD-007 a
 
 ### Parallel Concurrency Tests
 
-6. Verify that multiple tool calls invoked in parallel against the same PDF file all succeed independently, per PRD REQ-10 and FRD-007 FR #2:
+6. Verify that multiple tool calls invoked in parallel against the same PDF file all succeed independently, per PRD REQ-9 and FRD-007 FR #2:
    - Issue multiple `GetPageText` calls in parallel (e.g., 3 calls for different pages of the same PDF). Verify all return valid results with no errors, data corruption, or transient failures.
    - Issue parallel calls across different PdfPig-based tools against the same PDF (e.g., `GetPdfInfo`, `GetPageText`, and `GetPageGraphics` concurrently). Verify all succeed.
-   - Issue parallel calls that include both a PdfPig-based tool and `RenderPagePreview` against the same PDF. Verify both succeed (the rendering semaphore serializes Docnet access but must not block PdfPig-based tools).
+   - Issue parallel calls that include both a PdfPig-based tool and `RenderPagePreview` against the same PDF. Verify both succeed (the rendering semaphore serializes PDFiumCore access but must not block PdfPig-based tools).
    - **Implementation note:** Because the MCP stdio protocol is request-response on a single connection, true parallel invocation requires sending multiple JSON-RPC requests before reading any responses. Send all requests sequentially (without waiting for responses), then read all responses and match by `id`. This tests concurrency at the server level even though the transport is serial.
 
 ## Acceptance Criteria
@@ -76,7 +76,7 @@ This task creates a dedicated integration test class that verifies the FRD-007 a
 - [ ] All 5 tools return identical error messages for null/empty path, nonexistent file, path traversal, and non-PDF file.
 - [ ] All 5 tools return identical error messages for a locked/inaccessible file.
 - [ ] The locked-file error message is clearly distinguishable from the invalid-PDF error message.
-- [ ] Both PdfPig-based tools and the Docnet-based tool (`RenderPagePreview`) produce the same error messages for locked files and non-PDF files.
+- [ ] Both PdfPig-based tools and the PDFiumCore-based tool (`RenderPagePreview`) produce the same error messages for locked files and non-PDF files.
 - [ ] All 4 page-level tools return identical error messages for page 0 and page out of range.
 - [ ] Server continuity is verified: a successful call following a failed call returns correct results.
 - [ ] Error responses are verified to not contain stack traces, internal paths, or .NET type names.

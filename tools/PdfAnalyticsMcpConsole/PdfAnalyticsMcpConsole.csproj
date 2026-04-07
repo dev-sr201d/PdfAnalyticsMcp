@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PdfAnalyticsMcp\PdfAnalyticsMcp.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.*" />
   </ItemGroup>
 
 </Project>

@@ -7,7 +7,7 @@ Implement the MCP server host configuration in `Program.cs` so that the applicat
 ## Traces To
 
 - **FRD:** FRD-001 (MCP Server Host & Stdio Transport)
-- **PRD:** REQ-9 (Local stdio transport)
+- **PRD:** REQ-8 (Local stdio transport)
 - **ADRs:** ADR-0003 (MCP SDK)
 
 ## Dependencies

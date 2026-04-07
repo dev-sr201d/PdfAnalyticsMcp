@@ -7,7 +7,7 @@ Create the data transfer objects and extraction service for the `GetPageText` to
 ## Traces To
 
 - **FRD:** FRD-003 (Page Text Extraction — GetPageText)
-- **PRD:** REQ-2 (Rich text extraction), REQ-6 (Data volume management), REQ-7 (Page-by-page processing)
+- **PRD:** REQ-2 (Rich text extraction), NFR-1 (Data volume management), REQ-6 (Page-by-page processing)
 - **ADRs:** ADR-0002 (PdfPig), ADR-0005 (Serialization)
 
 ## Dependencies

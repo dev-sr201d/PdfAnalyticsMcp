@@ -2,7 +2,7 @@
 
 ## Traces To
 
-- **PRD:** REQ-9 (Local stdio transport)
+- **PRD:** REQ-8 (Local stdio transport)
 - **ADRs:** ADR-0001 (Language/Runtime), ADR-0003 (MCP SDK)
 
 ## Summary

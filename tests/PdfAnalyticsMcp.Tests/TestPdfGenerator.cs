@@ -442,4 +442,232 @@ public static class TestPdfGenerator
         File.WriteAllBytes(path, bytes);
         return path;
     }
+
+    /// <summary>
+    /// Creates a minimal PDF with a Form XObject that contains an embedded image.
+    /// The Form XObject is referenced once on the page, at position (100, 500) with display size 200x150.
+    /// This tests that images inside Form XObjects are discovered via recursive traversal.
+    /// </summary>
+    public static string CreateFormXObjectImageTestPdf()
+    {
+        var path = GetTestDataPath("sample-formxobj-image.pdf");
+        if (File.Exists(path)) return path;
+
+        // Minimal 2x2 red pixel RGB raw data (no PNG wrapper — raw PDF image stream)
+        byte[] imageData = [255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0]; // 4 pixels × 3 bytes RGB
+
+        // Form XObject content stream: draw the image scaled to the unit box
+        byte[] formStream = System.Text.Encoding.ASCII.GetBytes("1 0 0 1 0 0 cm /Im1 Do\n");
+
+        // Page content stream: position the Form XObject at (100, 500) with size 200×150
+        byte[] pageStream = System.Text.Encoding.ASCII.GetBytes("q 200 0 0 150 100 500 cm /Form1 Do Q\n");
+
+        var pdfBytes = BuildRawPdfWithFormXObject(pageStream, formStream, imageData);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, pdfBytes);
+        return path;
+    }
+
+    /// <summary>
+    /// Creates a minimal PDF with a Form XObject containing an image, referenced twice on the page
+    /// at different positions. This tests duplicate image deduplication — the same image object
+    /// should be reported with two bounding boxes but extracted to disk only once.
+    /// Form XObject at (100, 500) 200×150 and at (300, 300) 200×150.
+    /// </summary>
+    public static string CreateDuplicateFormXObjectImageTestPdf()
+    {
+        var path = GetTestDataPath("sample-dupformxobj-image.pdf");
+        if (File.Exists(path)) return path;
+
+        byte[] imageData = [255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0]; // 2x2 red RGB
+        byte[] formStream = System.Text.Encoding.ASCII.GetBytes("1 0 0 1 0 0 cm /Im1 Do\n");
+
+        // Reference Form1 twice at different positions
+        byte[] pageStream = System.Text.Encoding.ASCII.GetBytes(
+            "q 200 0 0 150 100 500 cm /Form1 Do Q\nq 200 0 0 150 300 300 cm /Form1 Do Q\n");
+
+        var pdfBytes = BuildRawPdfWithFormXObject(pageStream, formStream, imageData);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, pdfBytes);
+        return path;
+    }
+
+    /// <summary>
+    /// Builds a raw PDF with a single page containing a Form XObject that draws an image.
+    /// Page size is US Letter (612×792). The form and image XObjects are linked via resources.
+    /// </summary>
+    private static byte[] BuildRawPdfWithFormXObject(byte[] pageStream, byte[] formStream, byte[] imageData)
+    {
+        using var ms = new MemoryStream();
+        using var w = new StreamWriter(ms, System.Text.Encoding.ASCII, leaveOpen: true);
+        w.NewLine = "\n";
+        var offsets = new List<long>();
+
+        w.Write("%PDF-1.4\n");
+
+        // Object 1: Catalog
+        w.Flush(); offsets.Add(ms.Position);
+        w.Write("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+
+        // Object 2: Pages
+        w.Flush(); offsets.Add(ms.Position);
+        w.Write("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+
+        // Object 3: Page
+        w.Flush(); offsets.Add(ms.Position);
+        w.Write("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /XObject << /Form1 5 0 R >> >> >>\nendobj\n");
+
+        // Object 4: Page content stream
+        w.Flush(); offsets.Add(ms.Position);
+        w.Write($"4 0 obj\n<< /Length {pageStream.Length} >>\nstream\n");
+        w.Flush(); ms.Write(pageStream);
+        w.Write("\nendstream\nendobj\n");
+
+        // Object 5: Form XObject
+        w.Flush(); offsets.Add(ms.Position);
+        w.Write($"5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Resources << /XObject << /Im1 6 0 R >> >> /Length {formStream.Length} >>\nstream\n");
+        w.Flush(); ms.Write(formStream);
+        w.Write("\nendstream\nendobj\n");
+
+        // Object 6: Image XObject
+        w.Flush(); offsets.Add(ms.Position);
+        w.Write($"6 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length {imageData.Length} >>\nstream\n");
+        w.Flush(); ms.Write(imageData);
+        w.Write("\nendstream\nendobj\n");
+
+        // xref table
+        w.Flush();
+        long xrefOffset = ms.Position;
+        w.Write($"xref\n0 {offsets.Count + 1}\n");
+        w.Write("0000000000 65535 f \n");
+        foreach (var offset in offsets)
+        {
+            w.Write($"{offset:D10} 00000 n \n");
+        }
+
+        // Trailer
+        w.Write($"trailer\n<< /Size {offsets.Count + 1} /Root 1 0 R >>\nstartxref\n{xrefOffset}\n%%EOF\n");
+
+        w.Flush();
+        return ms.ToArray();
+    }
+
+    /// <summary>
+    /// Creates a minimal PDF with nested Form XObjects: Page → Form1 → Form2 → Image.
+    /// This tests deep Form XObject recursion (more than one level deep).
+    /// </summary>
+    public static string CreateNestedFormXObjectImageTestPdf()
+    {
+        var path = GetTestDataPath("sample-nestedformxobj-image.pdf");
+        if (File.Exists(path)) return path;
+
+        byte[] imageData = [255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0]; // 2x2 red RGB
+
+        // Form2 draws the image
+        byte[] form2Stream = System.Text.Encoding.ASCII.GetBytes("1 0 0 1 0 0 cm /Im1 Do\n");
+        // Form1 draws Form2
+        byte[] form1Stream = System.Text.Encoding.ASCII.GetBytes("1 0 0 1 0 0 cm /Form2 Do\n");
+        // Page draws Form1 at (100, 500) 200×150
+        byte[] pageStream = System.Text.Encoding.ASCII.GetBytes("q 200 0 0 150 100 500 cm /Form1 Do Q\n");
+
+        using var ms = new MemoryStream();
+        using var w = new StreamWriter(ms, System.Text.Encoding.ASCII, leaveOpen: true);
+        w.NewLine = "\n";
+        var offsets = new List<long>();
+
+        w.Write("%PDF-1.4\n");
+
+        w.Flush(); offsets.Add(ms.Position);
+        w.Write("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+
+        w.Flush(); offsets.Add(ms.Position);
+        w.Write("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+
+        // Page references Form1
+        w.Flush(); offsets.Add(ms.Position);
+        w.Write("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /XObject << /Form1 5 0 R >> >> >>\nendobj\n");
+
+        w.Flush(); offsets.Add(ms.Position);
+        w.Write($"4 0 obj\n<< /Length {pageStream.Length} >>\nstream\n");
+        w.Flush(); ms.Write(pageStream);
+        w.Write("\nendstream\nendobj\n");
+
+        // Form1 references Form2
+        w.Flush(); offsets.Add(ms.Position);
+        w.Write($"5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Resources << /XObject << /Form2 6 0 R >> >> /Length {form1Stream.Length} >>\nstream\n");
+        w.Flush(); ms.Write(form1Stream);
+        w.Write("\nendstream\nendobj\n");
+
+        // Form2 references Im1
+        w.Flush(); offsets.Add(ms.Position);
+        w.Write($"6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Resources << /XObject << /Im1 7 0 R >> >> /Length {form2Stream.Length} >>\nstream\n");
+        w.Flush(); ms.Write(form2Stream);
+        w.Write("\nendstream\nendobj\n");
+
+        // Image XObject
+        w.Flush(); offsets.Add(ms.Position);
+        w.Write($"7 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length {imageData.Length} >>\nstream\n");
+        w.Flush(); ms.Write(imageData);
+        w.Write("\nendstream\nendobj\n");
+
+        w.Flush();
+        long xrefOffset = ms.Position;
+        w.Write($"xref\n0 {offsets.Count + 1}\n");
+        w.Write("0000000000 65535 f \n");
+        foreach (var offset in offsets)
+        {
+            w.Write($"{offset:D10} 00000 n \n");
+        }
+        w.Write($"trailer\n<< /Size {offsets.Count + 1} /Root 1 0 R >>\nstartxref\n{xrefOffset}\n%%EOF\n");
+
+        w.Flush();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, ms.ToArray());
+        return path;
+    }
+
+    /// <summary>
+    /// Creates a minimal valid JPEG byte array (2x2 pixels, red).
+    /// This is a hand-crafted minimal JFIF file.
+    /// </summary>
+    public static byte[] CreateMinimalJpeg()
+    {
+        // Minimal valid JPEG: 2x2 red image, created via SkiaSharp
+        var info = new SkiaSharp.SKImageInfo(2, 2, SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Opaque);
+        using var bitmap = new SkiaSharp.SKBitmap(info);
+        var pixels = new byte[2 * 2 * 4];
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            pixels[i] = 0;       // B
+            pixels[i + 1] = 0;   // G
+            pixels[i + 2] = 255; // R
+            pixels[i + 3] = 255; // A
+        }
+        System.Runtime.InteropServices.Marshal.Copy(pixels, 0, bitmap.GetPixels(), pixels.Length);
+        using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SkiaSharp.SKEncodedImageFormat.Jpeg, 90);
+        return data.ToArray();
+    }
+
+    /// <summary>
+    /// Creates a PDF with a single embedded JPEG image at a known position.
+    /// Page 1: 2x2 red JPEG placed at (100, 500) with display size 200x150.
+    /// Returns the file path.
+    /// </summary>
+    public static string CreateJpegImageTestPdf()
+    {
+        var path = GetTestDataPath("sample-jpeg-image.pdf");
+        if (File.Exists(path)) return path;
+
+        var builder = new PdfDocumentBuilder();
+        var page = builder.AddPage(PageSize.Letter);
+
+        byte[] jpegBytes = CreateMinimalJpeg();
+        page.AddJpeg(jpegBytes, new PdfRectangle(100, 500, 300, 650));
+
+        var bytes = builder.Build();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, bytes);
+        return path;
+    }
 }

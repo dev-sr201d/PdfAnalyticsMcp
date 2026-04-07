@@ -2,11 +2,11 @@
 
 ## Description
 
-Create an internal utility that encodes raw BGRA pixel data (as produced by Docnet's `GetImage()`) into a JPEG byte array using SkiaSharp. This utility complements the PNG encoder from Task 012, providing lossy compression that significantly reduces file size for pages with photographic or multi-colored content. It is a prerequisite for the page rendering service (Task 013) and is independently unit-testable.
+Create an internal utility that encodes raw BGRA pixel data (as produced by PDFiumCore's rendering API) into a JPEG byte array using SkiaSharp. This utility complements the PNG encoder from Task 012, providing lossy compression that significantly reduces file size for pages with photographic or multi-colored content. It is a prerequisite for the page rendering service (Task 013) and is independently unit-testable.
 
 ## Traces To
 
-- **FRD:** FRD-005 (Page Rendering — RenderPagePreview), Functional Requirements 13, 16–17
+- **FRD:** FRD-005 (Page Rendering — RenderPagePreview), Functional Requirements 13, 15
 - **PRD:** REQ-5 (Page rendering)
 - **ADRs:** ADR-0004 (PDF Page Rendering and Image Encoding)
 
@@ -25,20 +25,20 @@ Add `SkiaSharp` to the main project's `.csproj`:
 <PackageReference Include="SkiaSharp" Version="3.*" />
 ```
 
-This introduces native Skia binaries (bundled per platform in the NuGet package). No manual configuration is required. The distribution model is the same as Docnet (ADR-0004).
+This introduces native Skia binaries (bundled per platform in the NuGet package). No manual configuration is required. The distribution model is the same as PDFiumCore (ADR-0004).
 
 ### Utility Location and Signature
 
 Define an internal static class in `Services/` (e.g., `JpegEncoder`) with a method that:
 - Accepts raw pixel data (`byte[]`), image width (`int`), image height (`int`), and quality (`int`, range 1–100)
-- The pixel data is in **BGRA format** (Blue, Green, Red, Alpha — 4 bytes per pixel), which is what Docnet's `IPageReader.GetImage()` produces
+- The pixel data is in **BGRA format** (Blue, Green, Red, Alpha — 4 bytes per pixel), which is what PDFiumCore's rendering functions produce
 - Returns a `byte[]` containing a valid JPEG file
 - Throws `ArgumentException` if the pixel data length does not match `width * height * 4`
 - Throws `ArgumentException` if quality is outside the 1–100 range
 
 ### JPEG Encoding Requirements
 
-1. **Alpha compositing** — Before encoding, composite the BGRA alpha channel against a white background, matching the same behavior as the PNG encoder (Task 012). PDF pages rendered by Docnet have a transparent buffer; without compositing, pages with no drawn background rectangle would appear as black in JPEG (JPEG has no alpha channel, so unhandled transparency defaults to black).
+1. **Alpha compositing** — Before encoding, composite the BGRA alpha channel against a white background, matching the same behavior as the PNG encoder (Task 012). PDF pages rendered by PDFiumCore have a transparent buffer; without compositing, pages with no drawn background rectangle would appear as black in JPEG (JPEG has no alpha channel, so unhandled transparency defaults to black).
 2. **BGRA to pixel conversion** — Load the composited pixel data into an `SKBitmap` configured for the BGRA color space (`SKColorType.Bgra8888`, `SKAlphaType.Opaque`). After compositing against white, all alpha values are 255 (fully opaque), so `Opaque` is the correct alpha type — it avoids unnecessary premultiplication math and clearly communicates that no transparency remains.
 3. **Quality mapping** — Pass the quality parameter directly to SkiaSharp's JPEG encoder. SkiaSharp's quality parameter maps 1–100 to libjpeg-turbo's compression level (1 = maximum compression / lowest quality, 100 = minimum compression / highest quality). This matches the FRD-005 specification.
 4. **Encoding** — Use `SKImage.FromBitmap()` then `image.Encode(SKEncodedImageFormat.Jpeg, quality)` to produce the JPEG bytes. Dispose all SkiaSharp objects (`SKBitmap`, `SKImage`, `SKData`) after use.

@@ -7,7 +7,7 @@ Create the MCP tool class for `GetPageGraphics` and comprehensive integration te
 ## Traces To
 
 - **FRD:** FRD-004 (Page Graphics Extraction — GetPageGraphics)
-- **PRD:** REQ-3 (Graphics extraction and classification), REQ-7 (Page-by-page processing)
+- **PRD:** REQ-3 (Graphics extraction and classification), REQ-6 (Page-by-page processing)
 - **ADRs:** ADR-0002 (PdfPig), ADR-0005 (Serialization)
 
 ## Dependencies

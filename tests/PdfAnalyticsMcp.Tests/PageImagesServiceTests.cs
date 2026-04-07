@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using PdfAnalyticsMcp.Services;
+using PDFiumCore;
 
 namespace PdfAnalyticsMcp.Tests;
 
@@ -9,15 +10,24 @@ public class PageImagesServiceTests : IDisposable
     private readonly PageImagesService _service;
     private readonly string _tempDir;
 
+    private static int _initialized;
+
     public PageImagesServiceTests()
     {
+        if (Interlocked.Exchange(ref _initialized, 1) == 0)
+        {
+            fpdfview.FPDF_InitLibrary();
+        }
+
         _tempDir = Path.Combine(Path.GetTempPath(), $"PdfImagesTest_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempDir);
-        _service = new PageImagesService(
+
+        var pdfiumService = new PdfiumService(
             new InputValidationService(),
-            new RenderPagePreviewService(
-                new InputValidationService(),
-                NullLogger<RenderPagePreviewService>.Instance),
+            NullLogger<PdfiumService>.Instance);
+
+        _service = new PageImagesService(
+            pdfiumService,
             NullLogger<PageImagesService>.Instance);
     }
 
@@ -46,7 +56,7 @@ public class PageImagesServiceTests : IDisposable
         Assert.Equal(150.0, image.H);
         Assert.Equal(2, image.PixelWidth);
         Assert.Equal(2, image.PixelHeight);
-        Assert.Equal(8, image.BitsPerComponent);
+        Assert.Equal(24, image.BitsPerPixel);
     }
 
     [Fact]
@@ -214,7 +224,7 @@ public class PageImagesServiceTests : IDisposable
             using var stream = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.None);
 
             var ex = await Assert.ThrowsAsync<ArgumentException>(() => _service.ExtractAsync(tempPath, 1));
-            Assert.Equal($"The file could not be accessed: {tempPath}. It may be in use by another process.", ex.Message);
+            Assert.Contains("could not be accessed", ex.Message);
         }
         finally
         {
@@ -235,7 +245,7 @@ public class PageImagesServiceTests : IDisposable
     {
         var path = TestPdfGenerator.CreateImageTestPdf();
         var ex = await Assert.ThrowsAsync<ArgumentException>(() => _service.ExtractAsync(path, 1, @"C:\temp\..\secret"));
-        Assert.Contains("..", ex.Message);
+        Assert.Contains("Invalid output path", ex.Message);
     }
 
     [Fact]
@@ -294,7 +304,7 @@ public class PageImagesServiceTests : IDisposable
         Assert.True(imageElement.TryGetProperty("h", out _));
         Assert.True(imageElement.TryGetProperty("pixelWidth", out _));
         Assert.True(imageElement.TryGetProperty("pixelHeight", out _));
-        Assert.True(imageElement.TryGetProperty("bitsPerComponent", out _));
+        Assert.True(imageElement.TryGetProperty("bitsPerPixel", out _));
     }
 
     [Fact]
@@ -332,283 +342,260 @@ public class PageImagesServiceTests : IDisposable
         return string.IsNullOrEmpty(sanitized) ? "pdf" : sanitized;
     }
 
-    // --- ComputeFallbackDpi tests (spec test #7/#8 DPI selection) ---
+    [Fact]
+    public async Task ExtractAsync_FormXObjectImage_DiscoversImageViaRecursion()
+    {
+        var path = TestPdfGenerator.CreateFormXObjectImageTestPdf();
+        var result = await _service.ExtractAsync(path, 1);
+
+        Assert.Equal(1, result.Page);
+        Assert.Single(result.Images);
+
+        var image = result.Images[0];
+        Assert.True(image.W > 0, "Image width should be positive");
+        Assert.True(image.H > 0, "Image height should be positive");
+        Assert.Equal(2, image.PixelWidth);
+        Assert.Equal(2, image.PixelHeight);
+    }
 
     [Fact]
-    public void ComputeFallbackDpi_SingleImage_ComputesEffectiveDpi()
+    public async Task ExtractAsync_FormXObjectImage_WithOutputPath_ExtractsPng()
     {
-        // 300px wide displayed at 100pt => effective DPI = 300 / (100/72) = 216
-        var candidates = new List<PageImagesService.FallbackCandidate>
+        var path = TestPdfGenerator.CreateFormXObjectImageTestPdf();
+        var result = await _service.ExtractAsync(path, 1, _tempDir);
+
+        Assert.Single(result.Images);
+        var image = result.Images[0];
+        Assert.NotNull(image.File);
+        Assert.True(File.Exists(image.File), $"Expected PNG file to exist: {image.File}");
+
+        // Verify valid PNG
+        byte[] bytes = File.ReadAllBytes(image.File);
+        Assert.Equal(0x89, bytes[0]);
+        Assert.Equal((byte)'P', bytes[1]);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_DuplicateFormXObject_ReportsBothOccurrences()
+    {
+        var path = TestPdfGenerator.CreateDuplicateFormXObjectImageTestPdf();
+        var result = await _service.ExtractAsync(path, 1);
+
+        // Two occurrences of the same Form XObject → two image entries
+        Assert.Equal(2, result.Images.Count);
+
+        // Both should have positive dimensions
+        foreach (var image in result.Images)
         {
-            new(0, "f.png", 0, 0, 100, 100, 300, 300)
-        };
-
-        int dpi = PageImagesService.ComputeFallbackDpi(candidates);
-        Assert.Equal(216, dpi);
+            Assert.True(image.W > 0);
+            Assert.True(image.H > 0);
+            Assert.Equal(2, image.PixelWidth);
+            Assert.Equal(2, image.PixelHeight);
+        }
     }
 
     [Fact]
-    public void ComputeFallbackDpi_MultipleImages_ChoosesMaxDpi()
+    public async Task ExtractAsync_DuplicateFormXObject_WithOutputPath_ExtractsBothImages()
     {
-        // Image 1: 100px at 100pt => 72 DPI effective
-        // Image 2: 600px at 100pt => 432 DPI effective
-        var candidates = new List<PageImagesService.FallbackCandidate>
+        var path = TestPdfGenerator.CreateDuplicateFormXObjectImageTestPdf();
+        var result = await _service.ExtractAsync(path, 1, _tempDir);
+
+        Assert.Equal(2, result.Images.Count);
+
+        // Both occurrences should have file paths (PDFium creates separate object instances
+        // for each Form XObject reference, so each gets its own extraction)
+        Assert.NotNull(result.Images[0].File);
+        Assert.NotNull(result.Images[1].File);
+        Assert.True(File.Exists(result.Images[0].File!));
+        Assert.True(File.Exists(result.Images[1].File!));
+
+        // Both should be valid PNGs
+        foreach (var image in result.Images)
         {
-            new(0, "f1.png", 0, 0, 100, 100, 100, 100),
-            new(1, "f2.png", 0, 0, 100, 100, 600, 600)
-        };
-
-        int dpi = PageImagesService.ComputeFallbackDpi(candidates);
-        Assert.Equal(432, dpi);
+            byte[] bytes = File.ReadAllBytes(image.File!);
+            Assert.Equal(0x89, bytes[0]);
+            Assert.Equal((byte)'P', bytes[1]);
+        }
     }
 
     [Fact]
-    public void ComputeFallbackDpi_VeryHighResolution_ClampsTo600()
+    public async Task ExtractAsync_PngAlphaPreservation_ExtractsWithAlpha()
     {
-        // 10000px at 72pt => effective DPI = 10000 / (72/72) = 10000 → clamped to 600
-        var candidates = new List<PageImagesService.FallbackCandidate>
+        var path = TestPdfGenerator.CreateImageTestPdf();
+        var result = await _service.ExtractAsync(path, 1, _tempDir);
+
+        Assert.Single(result.Images);
+        Assert.NotNull(result.Images[0].File);
+
+        byte[] pngBytes = File.ReadAllBytes(result.Images[0].File);
+
+        // PNG IHDR chunk starts at offset 8 (after signature)
+        // IHDR: 4-byte length, 4-byte "IHDR", 4-byte width, 4-byte height, 1-byte bit depth, 1-byte color type
+        // Color type is at offset 8 + 4 + 4 + 4 + 4 + 1 = 25
+        Assert.True(pngBytes.Length > 25);
+        byte colorType = pngBytes[25];
+        Assert.Equal(6, colorType); // 6 = RGBA (preserveAlpha: true)
+    }
+
+    [Fact]
+    public async Task ExtractAsync_FilenameSanitization_SpacesPreserved()
+    {
+        // Create a PDF with a name containing spaces (valid on disk, should be preserved in output)
+        var originalPath = TestPdfGenerator.CreateImageTestPdf();
+        var tempPath = Path.Combine(Path.GetTempPath(), "test file with spaces.pdf");
+        try
         {
-            new(0, "f.png", 0, 0, 72, 72, 10000, 10000)
-        };
+            File.Copy(originalPath, tempPath, overwrite: true);
+            var result = await _service.ExtractAsync(tempPath, 1, _tempDir);
 
-        int dpi = PageImagesService.ComputeFallbackDpi(candidates);
-        Assert.Equal(600, dpi);
-    }
+            Assert.Single(result.Images);
+            Assert.NotNull(result.Images[0].File);
 
-    [Fact]
-    public void ComputeFallbackDpi_VeryLowResolution_FloorAt150Default()
-    {
-        // 1px at 100pt => effective DPI = 1 / (100/72) = 0.72 → below default 150 → returns 150
-        var candidates = new List<PageImagesService.FallbackCandidate>
+            string fileName = Path.GetFileName(result.Images[0].File!);
+            Assert.Equal("test file with spaces_p1_img1.png", fileName);
+            Assert.True(File.Exists(result.Images[0].File));
+        }
+        finally
         {
-            new(0, "f.png", 0, 0, 100, 100, 1, 1)
-        };
-
-        int dpi = PageImagesService.ComputeFallbackDpi(candidates);
-        Assert.Equal(150, dpi);
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
     }
 
     [Fact]
-    public void ComputeFallbackDpi_ZeroWidthImage_DefaultsTo150()
+    public async Task ExtractAsync_NestedFormXObject_DiscoversImageViaDeepRecursion()
     {
-        var candidates = new List<PageImagesService.FallbackCandidate>
-        {
-            new(0, "f.png", 0, 0, 0, 100, 200, 200)
-        };
+        var path = TestPdfGenerator.CreateNestedFormXObjectImageTestPdf();
+        var result = await _service.ExtractAsync(path, 1);
 
-        int dpi = PageImagesService.ComputeFallbackDpi(candidates);
-        Assert.Equal(150, dpi);
+        Assert.Equal(1, result.Page);
+        Assert.Single(result.Images);
+
+        var image = result.Images[0];
+        Assert.True(image.W > 0, "Image width should be positive");
+        Assert.True(image.H > 0, "Image height should be positive");
+        Assert.Equal(2, image.PixelWidth);
+        Assert.Equal(2, image.PixelHeight);
     }
 
     [Fact]
-    public void ComputeFallbackDpi_AsymmetricResolution_UsesMaxOfXAndY()
+    public async Task ExtractAsync_NestedFormXObject_WithOutputPath_ExtractsPng()
     {
-        // 300px wide at 72pt = 300 DPI-x; 100px tall at 72pt = 100 DPI-y → max = 300
-        var candidates = new List<PageImagesService.FallbackCandidate>
-        {
-            new(0, "f.png", 0, 0, 72, 72, 300, 100)
-        };
+        var path = TestPdfGenerator.CreateNestedFormXObjectImageTestPdf();
+        var result = await _service.ExtractAsync(path, 1, _tempDir);
 
-        int dpi = PageImagesService.ComputeFallbackDpi(candidates);
-        Assert.Equal(300, dpi);
+        Assert.Single(result.Images);
+        Assert.NotNull(result.Images[0].File);
+        Assert.True(File.Exists(result.Images[0].File!));
+
+        byte[] bytes = File.ReadAllBytes(result.Images[0].File!);
+        Assert.Equal(0x89, bytes[0]); // PNG signature
     }
 
-    // --- ComputeCropRegion tests (spec test #9: Y-axis inversion and clamping) ---
+    // NOTE: The FPDFImageObj_GetRenderedBitmap → FPDFImageObj_GetBitmap fallback path
+    // was verified manually using "Warhammer Fantasy Roleplay 4th Edition" PDF (page 25,
+    // images 8 and 9), where GetRenderedBitmap returns null and GetBitmap succeeds with
+    // BGR format. That PDF cannot be included in this repository due to copyright.
+    // The ConvertToBgra logic (which handles the BGR→BGRA conversion for the fallback)
+    // is fully covered by unit tests in ConvertToBgraTests.cs.
 
     [Fact]
-    public void ComputeCropRegion_BasicMapping_InvertsYAxis()
+    public async Task ExtractAsync_JpegImage_ExtractsAsJpgFile()
     {
-        // Image at bottom-left of page: Left=0, Bottom=0, 100x50pt
-        // Scale = 2.0 (144 DPI), renderHeight = 1584 (792pt * 2)
-        var result = PageImagesService.ComputeCropRegion(
-            boundsLeft: 0, boundsBottom: 0, boundsWidth: 100, boundsHeight: 50,
-            scale: 2.0, renderWidth: 1224, renderHeight: 1584);
+        var path = TestPdfGenerator.CreateJpegImageTestPdf();
+        var result = await _service.ExtractAsync(path, 1, _tempDir);
 
-        Assert.NotNull(result);
-        var (left, top, width, height) = result.Value;
+        Assert.Single(result.Images);
+        var image = result.Images[0];
+        Assert.NotNull(image.File);
+        Assert.EndsWith(".jpg", image.File);
+        Assert.True(File.Exists(image.File));
 
-        Assert.Equal(0, left);
-        // Y inversion: top = 1584 - (0 + 50)*2 = 1584 - 100 = 1484
-        Assert.Equal(1484, top);
-        Assert.Equal(200, width);  // 100 * 2
-        Assert.Equal(100, height); // 50 * 2
-    }
-
-    [Fact]
-    public void ComputeCropRegion_TopOfPage_YAxisInversion()
-    {
-        // Image near top: Bottom=742, Height=50 → top edge at 792pt (page top)
-        // Scale = 1.0, renderHeight = 792
-        var result = PageImagesService.ComputeCropRegion(
-            boundsLeft: 100, boundsBottom: 742, boundsWidth: 200, boundsHeight: 50,
-            scale: 1.0, renderWidth: 612, renderHeight: 792);
-
-        Assert.NotNull(result);
-        var (left, top, width, height) = result.Value;
-
-        Assert.Equal(100, left);
-        // Y inversion: top = 792 - (742 + 50)*1 = 792 - 792 = 0
-        Assert.Equal(0, top);
-        Assert.Equal(200, width);
-        Assert.Equal(50, height);
+        // Verify it's a valid JPEG (starts with FFD8 SOI marker)
+        byte[] bytes = File.ReadAllBytes(image.File);
+        Assert.True(bytes.Length > 2);
+        Assert.Equal(0xFF, bytes[0]);
+        Assert.Equal(0xD8, bytes[1]);
     }
 
     [Fact]
-    public void ComputeCropRegion_ExceedingRightBoundary_ClampsCropWidth()
+    public async Task ExtractAsync_JpegImage_FileNamingConvention()
     {
-        // Image extends beyond right edge: Left=500, Width=200 → right=700, but render is 612
-        var result = PageImagesService.ComputeCropRegion(
-            boundsLeft: 500, boundsBottom: 0, boundsWidth: 200, boundsHeight: 50,
-            scale: 1.0, renderWidth: 612, renderHeight: 792);
+        var path = TestPdfGenerator.CreateJpegImageTestPdf();
+        var result = await _service.ExtractAsync(path, 1, _tempDir);
 
-        Assert.NotNull(result);
-        var (left, _, width, _) = result.Value;
+        Assert.Single(result.Images);
+        var image = result.Images[0];
+        Assert.NotNull(image.File);
 
-        Assert.Equal(500, left);
-        Assert.Equal(112, width); // min(200, 612 - 500) = 112
+        // Should follow {pdfStem}_p{page}_img{index}.jpg for JPEG images
+        string expectedName = "sample-jpeg-image_p1_img1.jpg";
+        Assert.Equal(expectedName, Path.GetFileName(image.File));
     }
 
     [Fact]
-    public void ComputeCropRegion_ExceedingTopBoundary_ClampsCropHeight()
+    public async Task ExtractAsync_JpegImage_RawBytesPreserved()
     {
-        // Image extends above page: Bottom=780, Height=50 → top = -(780+50-792)*scale
-        // pixelTop would be negative, clamped to 0, height reduced
-        var result = PageImagesService.ComputeCropRegion(
-            boundsLeft: 0, boundsBottom: 780, boundsWidth: 100, boundsHeight: 50,
-            scale: 1.0, renderWidth: 612, renderHeight: 792);
+        // The extracted JPEG should be the raw image data — no re-encoding
+        var path = TestPdfGenerator.CreateJpegImageTestPdf();
+        var result = await _service.ExtractAsync(path, 1, _tempDir);
 
-        Assert.NotNull(result);
-        var (_, top, _, height) = result.Value;
+        Assert.Single(result.Images);
+        Assert.NotNull(result.Images[0].File);
 
-        // pixelTop = 792 - (780+50)*1 = 792 - 830 = -38 → clamped to 0
-        Assert.Equal(0, top);
-        // cropHeight = min(50, 792 - 0) = 50 (original fits after clamp)
-        Assert.Equal(50, height);
+        byte[] extractedBytes = File.ReadAllBytes(result.Images[0].File!);
+
+        // The file should be significantly smaller than a PNG re-encoding would be
+        // A 2x2 JPEG is typically under 1KB
+        Assert.True(extractedBytes.Length < 2048, $"JPEG should be small, was {extractedBytes.Length} bytes");
+
+        // Verify JPEG SOI + EOI markers
+        Assert.Equal(0xFF, extractedBytes[0]);
+        Assert.Equal(0xD8, extractedBytes[1]);
+        Assert.Equal(0xFF, extractedBytes[^2]);
+        Assert.Equal(0xD9, extractedBytes[^1]);
     }
 
     [Fact]
-    public void ComputeCropRegion_CompletelyOutsidePage_ReturnsNull()
+    public async Task ExtractAsync_PngImage_StillExtractsAsPng()
     {
-        // Image fully above page render area
-        var result = PageImagesService.ComputeCropRegion(
-            boundsLeft: 0, boundsBottom: 1000, boundsWidth: 100, boundsHeight: 100,
-            scale: 1.0, renderWidth: 612, renderHeight: 792);
+        // PNG-embedded images should still be extracted as PNG (not JPEG)
+        var path = TestPdfGenerator.CreateImageTestPdf();
+        var result = await _service.ExtractAsync(path, 1, _tempDir);
 
-        // pixelTop = 792 - (1000+100)*1 = -308, clamped to 0
-        // cropHeight = min(100, 792-0)=100 — actually this still fits.
-        // Let me use an image fully to the right of the render
-        result = PageImagesService.ComputeCropRegion(
-            boundsLeft: 700, boundsBottom: 0, boundsWidth: 100, boundsHeight: 100,
-            scale: 1.0, renderWidth: 612, renderHeight: 792);
+        Assert.Single(result.Images);
+        var image = result.Images[0];
+        Assert.NotNull(image.File);
+        Assert.EndsWith(".png", image.File);
 
-        // pixelLeft=700, cropWidth = min(100, 612-700) = min(100, -88) = -88 → null
-        Assert.Null(result);
+        byte[] bytes = File.ReadAllBytes(image.File);
+        Assert.Equal(0x89, bytes[0]); // PNG signature
     }
 
     [Fact]
-    public void ComputeCropRegion_ZeroSizeBounds_ReturnsNull()
+    public async Task ExtractAsync_JpegImage_MetadataStillCorrect()
     {
-        var result = PageImagesService.ComputeCropRegion(
-            boundsLeft: 0, boundsBottom: 0, boundsWidth: 0, boundsHeight: 0,
-            scale: 2.0, renderWidth: 1224, renderHeight: 1584);
+        var path = TestPdfGenerator.CreateJpegImageTestPdf();
+        var result = await _service.ExtractAsync(path, 1);
 
-        Assert.Null(result);
+        Assert.Single(result.Images);
+        var image = result.Images[0];
+
+        // Bounding box should match PdfRectangle(100, 500, 300, 650)
+        Assert.Equal(100.0, image.X);
+        Assert.Equal(500.0, image.Y);
+        Assert.Equal(200.0, image.W);
+        Assert.Equal(150.0, image.H);
+        Assert.Equal(2, image.PixelWidth);
+        Assert.Equal(2, image.PixelHeight);
     }
 
     [Fact]
-    public void ComputeCropRegion_WithScale_PixelValuesScaleCorrectly()
+    public async Task ExtractAsync_JpegImage_NoOutputPath_FileIsNull()
     {
-        // 72pt box at scale 150/72 ≈ 2.0833
-        double scale = 150.0 / 72.0;
-        var result = PageImagesService.ComputeCropRegion(
-            boundsLeft: 72, boundsBottom: 72, boundsWidth: 72, boundsHeight: 72,
-            scale: scale, renderWidth: 1275, renderHeight: 1650);
+        var path = TestPdfGenerator.CreateJpegImageTestPdf();
+        var result = await _service.ExtractAsync(path, 1);
 
-        Assert.NotNull(result);
-        var (left, top, width, height) = result.Value;
-
-        // pixelLeft = round(72 * 2.0833) = round(150) = 150
-        Assert.Equal(150, left);
-        // pixelTop = 1650 - round((72+72)*2.0833) = 1650 - round(300) = 1350
-        Assert.Equal(1350, top);
-        Assert.Equal(150, width);
-        Assert.Equal(150, height);
-    }
-
-    // --- CompositeAgainstWhite tests (FRD-006 requirement 17) ---
-
-    [Fact]
-    public void CompositeAgainstWhite_FullyOpaquePixels_Unchanged()
-    {
-        byte[] bgra = [100, 150, 200, 255]; // B=100, G=150, R=200, A=255
-        PageImagesService.CompositeAgainstWhite(bgra);
-
-        Assert.Equal(100, bgra[0]);
-        Assert.Equal(150, bgra[1]);
-        Assert.Equal(200, bgra[2]);
-        Assert.Equal(255, bgra[3]);
-    }
-
-    [Fact]
-    public void CompositeAgainstWhite_FullyTransparentPixels_BecomesWhite()
-    {
-        byte[] bgra = [100, 150, 200, 0]; // Fully transparent
-        PageImagesService.CompositeAgainstWhite(bgra);
-
-        Assert.Equal(255, bgra[0]);
-        Assert.Equal(255, bgra[1]);
-        Assert.Equal(255, bgra[2]);
-        Assert.Equal(255, bgra[3]);
-    }
-
-    [Fact]
-    public void CompositeAgainstWhite_HalfTransparentBlack_BecomesGray()
-    {
-        // 50% transparent black: out = 0 * 0.5 + 255 * 0.5 = 127 (approximately)
-        byte[] bgra = [0, 0, 0, 128];
-        PageImagesService.CompositeAgainstWhite(bgra);
-
-        // Allow ±1 for rounding: 0 * (128/255) + 255 * (1 - 128/255) ≈ 127
-        Assert.InRange(bgra[0], 126, 128); // B
-        Assert.InRange(bgra[1], 126, 128); // G
-        Assert.InRange(bgra[2], 126, 128); // R
-        Assert.Equal(255, bgra[3]);         // A now fully opaque
-    }
-
-    [Fact]
-    public void CompositeAgainstWhite_MultiplePixels_AllProcessed()
-    {
-        byte[] bgra =
-        [
-            0, 0, 0, 0,       // Pixel 1: fully transparent → white
-            255, 0, 0, 255,   // Pixel 2: opaque blue → unchanged
-            0, 0, 0, 128,     // Pixel 3: half transparent black → gray
-        ];
-
-        PageImagesService.CompositeAgainstWhite(bgra);
-
-        // Pixel 1: white
-        Assert.Equal(255, bgra[0]);
-        Assert.Equal(255, bgra[1]);
-        Assert.Equal(255, bgra[2]);
-        Assert.Equal(255, bgra[3]);
-
-        // Pixel 2: unchanged
-        Assert.Equal(255, bgra[4]);
-        Assert.Equal(0, bgra[5]);
-        Assert.Equal(0, bgra[6]);
-        Assert.Equal(255, bgra[7]);
-
-        // Pixel 3: gray-ish
-        Assert.InRange(bgra[8], 126, 128);
-        Assert.Equal(255, bgra[11]);
-    }
-
-    [Fact]
-    public void CompositeAgainstWhite_EmptyBuffer_NoOp()
-    {
-        byte[] bgra = [];
-        PageImagesService.CompositeAgainstWhite(bgra);
-        Assert.Empty(bgra);
+        Assert.Single(result.Images);
+        Assert.Null(result.Images[0].File);
     }
 }

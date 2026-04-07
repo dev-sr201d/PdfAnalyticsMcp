@@ -13,9 +13,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Docnet.Core" Version="2.*" />
     <PackageReference Include="ModelContextProtocol" Version="1.*" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.*" />
+    <PackageReference Include="PDFiumCore" Version="*-*" />
     <PackageReference Include="PdfPig" Version="0.*" />
     <PackageReference Include="SkiaSharp" Version="3.*" />
   </ItemGroup>

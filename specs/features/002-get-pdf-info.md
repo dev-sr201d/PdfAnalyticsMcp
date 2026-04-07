@@ -2,7 +2,7 @@
 
 ## Traces To
 
-- **PRD:** REQ-1 (Document metadata retrieval), REQ-10 (Concurrent tool safety)
+- **PRD:** REQ-1 (Document metadata retrieval), REQ-9 (Concurrent tool safety)
 - **ADRs:** ADR-0002 (PdfPig), ADR-0005 (Serialization)
 
 ## Summary

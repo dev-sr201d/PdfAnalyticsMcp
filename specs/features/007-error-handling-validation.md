@@ -2,7 +2,7 @@
 
 ## Traces To
 
-- **PRD:** REQ-8 (Robust error handling), REQ-10 (Concurrent tool safety)
+- **PRD:** REQ-7 (Robust error handling), REQ-9 (Concurrent tool safety)
 - **ADRs:** ADR-0003 (MCP SDK error model), ADR-0005 (Serialization)
 
 ## Summary
@@ -38,8 +38,12 @@ This feature applies to all tools: `GetPdfInfo`, `GetPageText`, `GetPageGraphics
 |------|-----------|-----------|----------|
 | `GetPageText` | `granularity` | Value is not `"words"` or `"letters"` | Return error: "Granularity must be 'words' or 'letters'." |
 | `GetPageText` | `outputFile` | Path is not absolute, contains `..`, or parent directory doesn't exist | Return appropriate error (see FRD-003) |
-| `GetPageImages` | `outputPath` | Path is not absolute, contains `..`, or directory doesn't exist | Return appropriate error (see FRD-006) |
+| `GetPageImages` | `outputPath` | Path is not absolute | Return error: `"outputPath must be an absolute path."` |
+| `GetPageImages` | `outputPath` | Path contains `..` | Return error: `"Invalid output path."` |
+| `GetPageImages` | `outputPath` | Directory doesn't exist | Return error: `"Output directory does not exist: {outputPath}"` |
 | `RenderPagePreview` | `dpi` | Value less than 72 or greater than 600 | Return error: "DPI must be between 72 and 600." |
+| `RenderPagePreview` | `format` | Value is not `"png"`, `"jpeg"`, or `"jpg"` | Return error: "Format must be 'png', 'jpeg', or 'jpg'." |
+| `RenderPagePreview` | `quality` | Value less than 1 or greater than 100 | Return error: "Quality must be between 1 and 100." |
 
 ## Functional Requirements
 
@@ -56,6 +60,7 @@ This feature applies to all tools: `GetPdfInfo`, `GetPageText`, `GetPageGraphics
 8. File path validation must reject path traversal sequences to prevent directory traversal attacks.
 9. File-open errors must be classified into two distinct categories: (a) file access/I/O errors (locked files, permission denied, sharing violations) and (b) invalid PDF format errors (not a PDF, corrupt file structure). Each category must produce a distinct error message so that callers can distinguish transient concurrency-related access failures from permanent file format problems.
 10. When a tool call is cancelled by the MCP client (via cancellation token), the server must release any resources held by that call (file handles, native rendering resources) and must not leave the server in a degraded state. The cancellation behavior is handled by the MCP SDK; the server must not interfere with it or catch cancellation exceptions as application errors.
+11. All tool errors must be logged server-side to stderr at an appropriate severity level (e.g., warning or error), including diagnostic context such as the exception type and message. The logged details must provide enough information for server-side debugging but must not be exposed to the caller in the error response.
 
 ## Acceptance Criteria
 
@@ -66,6 +71,8 @@ This feature applies to all tools: `GetPdfInfo`, `GetPageText`, `GetPageGraphics
 - [ ] Calling a page-level tool with a page number exceeding the document's page count returns an error showing the valid range.
 - [ ] Calling `GetPageText` with an invalid granularity value returns a clear error.
 - [ ] Calling `RenderPagePreview` with DPI outside range returns a clear error.
+- [ ] Calling `RenderPagePreview` with an invalid format value returns a clear error.
+- [ ] Calling `RenderPagePreview` with quality outside the valid range returns a clear error.
 - [ ] Error responses do not contain stack traces or internal system details.
 - [ ] The server continues to accept new tool calls after any error — errors are not fatal.
 - [ ] Passing a non-PDF file (e.g., a .txt file) returns a meaningful error, not an unhandled exception.

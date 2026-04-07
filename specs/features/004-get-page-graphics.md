@@ -2,7 +2,7 @@
 
 ## Traces To
 
-- **PRD:** REQ-3 (Graphics extraction and classification), REQ-6 (Data volume management), REQ-7 (Page-by-page processing), REQ-10 (Concurrent tool safety)
+- **PRD:** REQ-3 (Graphics extraction and classification), NFR-1 (Data volume management), REQ-6 (Page-by-page processing), REQ-9 (Concurrent tool safety)
 - **ADRs:** ADR-0002 (PdfPig), ADR-0005 (Serialization)
 
 ## Summary
@@ -67,10 +67,10 @@ A JSON object containing:
 
 ## Functional Requirements
 
-1. The tool must operate on a single page per call (REQ-7).
+1. The tool must operate on a single page per call (REQ-6).
 2. The service layer must use PdfPig's **`page.Paths`** API (`IReadOnlyList<PdfPath>`) to read pre-processed paths. PdfPig's internal `ContentStreamProcessor` handles graphics state tracking (CTM, colors, line styles) and automatically recurses into Form XObjects — no custom state machine is needed.
 3. Clipping paths (`IsClipping == true`) and invisible paths (neither filled nor stroked) must be filtered out.
-4. Extracted paths must be **classified server-side** into rectangles, lines, and complex paths (REQ-6). Raw operations must never be returned.
+4. Extracted paths must be **classified server-side** into rectangles, lines, and complex paths (NFR-1). Raw operations must never be returned.
 5. A path is classified as a **rectangle** if it has exactly one subpath with `Move` + 3 `Line` + `Close` (or `Move` + 4 `Line` with coincident endpoints) forming a closed axis-aligned shape with no curves.
 6. A path is classified as a **line** if it has exactly one subpath with 1 `Move` + 1 `Line` (two-point path, no close, no curves).
 7. All other paths are classified as **complex paths** with a bounding box and vertex count.

@@ -138,4 +138,129 @@ public class InputValidationServiceTests
         var ex = Assert.Throws<ArgumentException>(() => _service.ValidateDpi(dpi));
         Assert.Equal("DPI must be between 72 and 600.", ex.Message);
     }
+
+    // ValidateFormat tests
+
+    [Theory]
+    [InlineData("png")]
+    [InlineData("jpeg")]
+    [InlineData("jpg")]
+    [InlineData("PNG")]
+    [InlineData("Jpeg")]
+    public void ValidateFormat_ValidValue_DoesNotThrow(string format)
+    {
+        _service.ValidateFormat(format);
+    }
+
+    [Theory]
+    [InlineData("bmp")]
+    [InlineData("gif")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void ValidateFormat_InvalidValue_ThrowsWithExpectedMessage(string? format)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => _service.ValidateFormat(format));
+        Assert.Equal("Format must be 'png', 'jpeg', or 'jpg'.", ex.Message);
+    }
+
+    // ValidateQuality tests
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(50)]
+    [InlineData(100)]
+    public void ValidateQuality_ValidValue_DoesNotThrow(int quality)
+    {
+        _service.ValidateQuality(quality);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(101)]
+    [InlineData(-1)]
+    public void ValidateQuality_InvalidValue_ThrowsWithExpectedMessage(int quality)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => _service.ValidateQuality(quality));
+        Assert.Equal("Quality must be between 1 and 100.", ex.Message);
+    }
+
+    // ValidateOutputPath tests
+
+    [Fact]
+    public void ValidateOutputPath_ValidAbsoluteDirectory_DoesNotThrow()
+    {
+        var tempDir = Path.GetTempPath();
+        _service.ValidateOutputPath(tempDir);
+    }
+
+    [Theory]
+    [InlineData("relative/path")]
+    [InlineData("folder")]
+    public void ValidateOutputPath_RelativePath_ThrowsWithExpectedMessage(string outputPath)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => _service.ValidateOutputPath(outputPath));
+        Assert.Equal("outputPath must be an absolute path.", ex.Message);
+    }
+
+    [Fact]
+    public void ValidateOutputPath_Null_ThrowsWithExpectedMessage()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => _service.ValidateOutputPath(null));
+        Assert.Equal("outputPath must be an absolute path.", ex.Message);
+    }
+
+    [Fact]
+    public void ValidateOutputPath_ContainsTraversal_ThrowsWithExpectedMessage()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => _service.ValidateOutputPath("C:\\output\\..\\secret"));
+        Assert.Equal("Invalid output path.", ex.Message);
+    }
+
+    [Fact]
+    public void ValidateOutputPath_NonexistentDirectory_ThrowsWithExpectedMessage()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var ex = Assert.Throws<ArgumentException>(() => _service.ValidateOutputPath(path));
+        Assert.Equal($"Output directory does not exist: {path}", ex.Message);
+    }
+
+    // ValidateOutputFile tests
+
+    [Fact]
+    public void ValidateOutputFile_ValidAbsolutePathWithExistingParent_DoesNotThrow()
+    {
+        var outputFile = Path.Combine(Path.GetTempPath(), "test-output.csv");
+        _service.ValidateOutputFile(outputFile);
+    }
+
+    [Theory]
+    [InlineData("relative/file.csv")]
+    [InlineData("file.csv")]
+    public void ValidateOutputFile_RelativePath_ThrowsWithExpectedMessage(string outputFile)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => _service.ValidateOutputFile(outputFile));
+        Assert.Equal("Output file path must be an absolute path.", ex.Message);
+    }
+
+    [Fact]
+    public void ValidateOutputFile_Null_ThrowsWithExpectedMessage()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => _service.ValidateOutputFile(null));
+        Assert.Equal("Output file path must be an absolute path.", ex.Message);
+    }
+
+    [Fact]
+    public void ValidateOutputFile_ContainsTraversal_ThrowsWithExpectedMessage()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => _service.ValidateOutputFile("C:\\output\\..\\secret.csv"));
+        Assert.Equal("Output file path must not contain path traversal sequences.", ex.Message);
+    }
+
+    [Fact]
+    public void ValidateOutputFile_ParentDirectoryDoesNotExist_ThrowsWithExpectedMessage()
+    {
+        var outputFile = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString(), "output.csv");
+        var ex = Assert.Throws<ArgumentException>(() => _service.ValidateOutputFile(outputFile));
+        Assert.Equal("The parent directory of the output file path does not exist.", ex.Message);
+    }
 }

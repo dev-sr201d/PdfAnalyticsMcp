@@ -8,7 +8,7 @@ Create the MCP tool class for `RenderPagePreview` and comprehensive integration 
 
 - **FRD:** FRD-005 (Page Rendering — RenderPagePreview)
 - **FRD:** FRD-007 (Error Handling & Input Validation)
-- **PRD:** REQ-5 (Page rendering), REQ-7 (Page-by-page processing), REQ-8 (Robust error handling)
+- **PRD:** REQ-5 (Page rendering), REQ-6 (Page-by-page processing), REQ-7 (Robust error handling)
 - **ADRs:** ADR-0003 (MCP SDK), ADR-0004 (PDF Page Rendering and Image Encoding), ADR-0005 (Serialization)
 
 ## Dependencies
@@ -35,11 +35,14 @@ Define a tool class in `Tools/` that:
    - `quality` (int, optional, default `80`) — Image quality (1–100; controls JPEG compression, ignored for PNG)
 5. The tool method must:
    - **Return `IEnumerable<ContentBlock>`** — This is different from all other tools which return `string`. The MCP C# SDK natively supports this return type and converts each content block into the tool response.
-   - Validate the file path using `IInputValidationService.ValidateFilePath()`
-   - Delegate to the rendering service, passing `pdfPath`, `page`, `dpi`, `format`, and `quality`
+   - Validate the file path using `IInputValidationService.ValidateFilePath(pdfPath)`
+   - Validate the page number using `IInputValidationService.ValidatePageMinimum(page)` — fail-fast before calling the service
+   - Validate the DPI value using `IInputValidationService.ValidateDpi(dpi)` — fail-fast before calling the service
+   - Delegate to `renderService.RenderAsync(pdfPath, page, dpi, format, quality, cancellationToken)`, which returns a `RenderPagePreviewResult` (from Task 013). The service internally re-validates DPI, format, and quality before acquiring the PDFium semaphore.
+   - Construct a `RenderPagePreviewMetadataDto` from the result fields, with `SizeBytes` set to `result.ImageData.Length`
    - Construct two content blocks from the service result:
      1. An `ImageContentBlock` created via `ImageContentBlock.FromBytes(result.ImageData, result.MimeType)` — the SDK handles base64 encoding
-     2. A `TextContentBlock` containing a JSON string with the metadata fields (`page`, `dpi`, `format`, `quality`, `width`, `height`, `sizeBytes`) serialized using `SerializerConfig.Options`
+     2. A `TextContentBlock` containing the `RenderPagePreviewMetadataDto` serialized to JSON using `SerializerConfig.Options`
    - Return both content blocks as an `IEnumerable<ContentBlock>` (e.g., an array)
    - Catch `ArgumentException` and rethrow as `McpException` to preserve error messages for the agent
 
@@ -74,16 +77,19 @@ The MCP SDK automatically converts `IEnumerable<ContentBlock>` into the `CallToo
 
 ### Metadata DTO
 
-Define a small record type for the metadata JSON (this is internal to the tool, not a full response DTO):
-- `page` (int)
-- `dpi` (int)
-- `format` (string) — the normalized format name (`"png"` or `"jpeg"`)
-- `quality` (int) — the quality value used
-- `width` (int)
-- `height` (int)
-- `sizeBytes` (int) — the encoded image size in bytes
+Define a record type `RenderPagePreviewMetadataDto` in `Models/RenderPagePreviewMetadataDto.cs` for the metadata JSON text block. This DTO is constructed by the tool from the `RenderPagePreviewResult` returned by the service (Task 013), with `SizeBytes` derived from `result.ImageData.Length`:
+
+- `Page` (int) — from `result.Page`
+- `Dpi` (int) — from `result.Dpi`
+- `Format` (string) — from `result.Format` (normalized: `"png"` or `"jpeg"`)
+- `Quality` (int) — from `result.Quality`
+- `Width` (int) — from `result.Width`
+- `Height` (int) — from `result.Height`
+- `SizeBytes` (int) — computed from `result.ImageData.Length`
 
 Serialize using `SerializerConfig.Options` (camelCase, no nulls, no indentation).
+
+> **Note:** This DTO is separate from `RenderPagePreviewResult` (which contains the full `ImageData` byte array). The metadata DTO excludes image data and substitutes `SizeBytes` for use in the text content block.
 
 ## Acceptance Criteria
 
@@ -101,9 +107,10 @@ Serialize using `SerializerConfig.Options` (camelCase, no nulls, no indentation)
 - [ ] Missing or empty `pdfPath` returns an MCP error with a descriptive message.
 - [ ] Nonexistent file path returns an MCP error with "File not found" in the message.
 - [ ] Path traversal attempt returns an MCP error with "Invalid file path" in the message.
-- [ ] Invalid (non-PDF) file returns an MCP error indicating the file could not be rendered.
+- [ ] Invalid (non-PDF) file returns an MCP error containing "could not be opened as a PDF" (consistent with FRD-007 standard error messages).
+- [ ] Page number zero returns an MCP error with "Page number must be 1 or greater" (validated at tool boundary via `IInputValidationService.ValidatePageMinimum`).
 - [ ] Out-of-range page number returns an MCP error with a descriptive message including the valid page range.
-- [ ] DPI below 72 or above 600 returns an MCP error with a descriptive message about the valid range.
+- [ ] DPI below 72 or above 600 returns an MCP error with a descriptive message about the valid range (validated at tool boundary via `IInputValidationService.ValidateDpi`, and re-validated by the service).
 - [ ] Invalid format value returns an MCP error listing valid options.
 - [ ] Quality outside 1–100 returns an MCP error with a descriptive message.
 
@@ -160,7 +167,7 @@ Unlike the other tools (which return a single `TextContentBlock`), this tool ret
 
 16. **Path traversal** — Call with a path containing `..`. Verify the error contains "Invalid file path".
 
-17. **Invalid PDF** — Call with `not-a-pdf.txt`. Verify the error indicates the file could not be rendered as a PDF.
+17. **Invalid PDF** — Call with `not-a-pdf.txt`. Verify the error contains "could not be opened as a PDF" (consistent with FRD-007 standard error messages).
 
 18. **Page out of range** — Call with a page number beyond the document's page count. Verify the error includes the valid page range.
 

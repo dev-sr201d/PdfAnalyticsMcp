@@ -13,7 +13,7 @@ The service classifies each path into rectangles, lines, and complex shapes, and
 ## Traces To
 
 - **FRD:** FRD-004 (Page Graphics Extraction — GetPageGraphics)
-- **PRD:** REQ-3 (Graphics extraction and classification), REQ-6 (Data volume management), REQ-7 (Page-by-page processing)
+- **PRD:** REQ-3 (Graphics extraction and classification), NFR-1 (Data volume management), REQ-6 (Page-by-page processing)
 - **ADRs:** ADR-0002 (PdfPig), ADR-0005 (Serialization)
 
 ## Dependencies
