@@ -1,8 +1,8 @@
-# Task 013: RenderPagePreview Service and DTO
+# Task 015: RenderPagePreview Service and DTO
 
 ## Description
 
-Create the data transfer objects and rendering service for the `RenderPagePreview` tool (FRD-005). The service delegates to the shared `IPdfiumService` (Task 012b) for serialized document/page access, then uses PDFiumCore's `FPDF_RenderPageBitmapWithMatrix()` to render a single PDF page at a configurable DPI. The raw BGRA pixel output is encoded to either PNG or JPEG depending on the requested format. PNG encoding uses the encoder from Task 012; JPEG encoding uses the SkiaSharp-based encoder from Task 012a. The service returns a result DTO containing the encoded image bytes, MIME type, and rendering metadata.
+Create the data transfer objects and rendering service for the `RenderPagePreview` tool (FRD-005). The service delegates to the shared `IPdfiumService` (Task 014) for serialized document/page access, then uses PDFiumCore's `FPDF_RenderPageBitmapWithMatrix()` to render a single PDF page at a configurable DPI. The raw BGRA pixel output is encoded to either PNG or JPEG depending on the requested format. PNG encoding uses the encoder from Task 012; JPEG encoding uses the SkiaSharp-based encoder from Task 013. The service returns a result DTO containing the encoded image bytes, MIME type, and rendering metadata.
 
 This service operates independently of PdfPig. All PDFiumCore operations (document loading, page access, rendering) are serialized through the shared `IPdfiumService` semaphore, ensuring thread safety.
 
@@ -17,14 +17,14 @@ This service operates independently of PdfPig. All PDFiumCore operations (docume
 - **Task 001** — Solution and project scaffolding (complete)
 - **Task 005** — Input validation service: `IInputValidationService` (complete)
 - **Task 012** — BGRA-to-PNG encoder utility (must be complete before this task)
-- **Task 012a** — BGRA-to-JPEG encoder utility using SkiaSharp (must be complete before this task)
-- **Task 012b** — Shared PDFiumCore service: `IPdfiumService` (must be complete before this task)
+- **Task 013** — BGRA-to-JPEG encoder utility using SkiaSharp (must be complete before this task)
+- **Task 014** — Shared PDFiumCore service: `IPdfiumService` (must be complete before this task)
 
 ## Technical Requirements
 
 ### NuGet Dependencies
 
-The `PDFiumCore` and `SkiaSharp` packages are already added by Tasks 012b and 012a respectively. No additional NuGet packages are needed for this task.
+The `PDFiumCore` and `SkiaSharp` packages are already added by Tasks 014 and 013 respectively. No additional NuGet packages are needed for this task.
 
 ### DTO
 
@@ -77,7 +77,7 @@ The service must:
    - Validate the pixel data — if the bitmap buffer is `IntPtr.Zero` or the byte array is empty, throw `InvalidOperationException` indicating the page could not be rendered
 6. **Encode to the requested format** (outside the callback, after native resources are released):
    - If format is `"png"`: encode using `PngEncoder.Encode(bgraData, width, height, preserveAlpha: false)` from Task 012. The `preserveAlpha: false` flag composites against white, producing opaque RGB output (FRD-005 requirement 6). Quality is ignored for PNG (FRD-005 requirement 14).
-   - If format is `"jpeg"`: encode using `JpegEncoder.Encode(bgraData, width, height, quality)` from Task 012a. Quality directly controls JPEG compression.
+   - If format is `"jpeg"`: encode using `JpegEncoder.Encode(bgraData, width, height, quality)` from Task 013. Quality directly controls JPEG compression.
 7. **Return the result DTO** with page number, DPI, format (normalized), quality, pixel dimensions, encoded image bytes, and MIME type (`"image/png"` or `"image/jpeg"`).
 
 > **Note on bitmap handle cleanup:** The `FpdfBitmapT` handle created for rendering is owned by this service's callback, not by `IPdfiumService`. It must be destroyed via `FPDFBitmapDestroy` in a `try/finally` within the callback, before the callback returns. The document and page handles are managed by `IPdfiumService`.

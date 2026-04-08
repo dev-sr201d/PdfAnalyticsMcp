@@ -1,4 +1,4 @@
-# Task 014: RenderPagePreview Tool and Integration Tests
+# Task 016: RenderPagePreview Tool and Integration Tests
 
 ## Description
 
@@ -16,7 +16,7 @@ Create the MCP tool class for `RenderPagePreview` and comprehensive integration 
 - **Task 002** — MCP server host with stdio transport (complete)
 - **Task 003** — Test project and server verification (complete)
 - **Task 007** — GetPdfInfo tool and integration tests — establishes the MCP integration test pattern (complete)
-- **Task 013** — RenderPagePreview service and DTO (must be complete before this task)
+- **Task 015** — RenderPagePreview service and DTO (must be complete before this task)
 
 ## Technical Requirements
 
@@ -38,7 +38,7 @@ Define a tool class in `Tools/` that:
    - Validate the file path using `IInputValidationService.ValidateFilePath(pdfPath)`
    - Validate the page number using `IInputValidationService.ValidatePageMinimum(page)` — fail-fast before calling the service
    - Validate the DPI value using `IInputValidationService.ValidateDpi(dpi)` — fail-fast before calling the service
-   - Delegate to `renderService.RenderAsync(pdfPath, page, dpi, format, quality, cancellationToken)`, which returns a `RenderPagePreviewResult` (from Task 013). The service internally re-validates DPI, format, and quality before acquiring the PDFium semaphore.
+   - Delegate to `renderService.RenderAsync(pdfPath, page, dpi, format, quality, cancellationToken)`, which returns a `RenderPagePreviewResult` (from Task 015). The service internally re-validates DPI, format, and quality before acquiring the PDFium semaphore.
    - Construct a `RenderPagePreviewMetadataDto` from the result fields, with `SizeBytes` set to `result.ImageData.Length`
    - Construct two content blocks from the service result:
      1. An `ImageContentBlock` created via `ImageContentBlock.FromBytes(result.ImageData, result.MimeType)` — the SDK handles base64 encoding
@@ -77,7 +77,7 @@ The MCP SDK automatically converts `IEnumerable<ContentBlock>` into the `CallToo
 
 ### Metadata DTO
 
-Define a record type `RenderPagePreviewMetadataDto` in `Models/RenderPagePreviewMetadataDto.cs` for the metadata JSON text block. This DTO is constructed by the tool from the `RenderPagePreviewResult` returned by the service (Task 013), with `SizeBytes` derived from `result.ImageData.Length`:
+Define a record type `RenderPagePreviewMetadataDto` in `Models/RenderPagePreviewMetadataDto.cs` for the metadata JSON text block. This DTO is constructed by the tool from the `RenderPagePreviewResult` returned by the service (Task 015), with `SizeBytes` derived from `result.ImageData.Length`:
 
 - `Page` (int) — from `result.Page`
 - `Dpi` (int) — from `result.Dpi`
@@ -183,4 +183,4 @@ Unlike the other tools (which return a single `TextContentBlock`), this tool ret
 
 24. **Quality too high** — Call with `quality=101`. Verify the error mentions the valid quality range.
 
-> **Note:** FRD-005 acceptance criteria include "Pages that PDFium cannot render produce a clear error message rather than empty/corrupt image data." This scenario is covered at the unit level in Task 013 (null/empty pixel data check) but is not integration-tested here because it requires a specially crafted PDF with a corrupted page stream, which is not feasible with standard test data. The unit-level guard in the service is sufficient. Similarly, the "JPEG output for a page with photographic content is significantly smaller than PNG" FRD acceptance criterion is covered at the unit level in Task 013 (JPEG quality affects size test).
+> **Note:** FRD-005 acceptance criteria include "Pages that PDFium cannot render produce a clear error message rather than empty/corrupt image data." This scenario is covered at the unit level in Task 015 (null/empty pixel data check) but is not integration-tested here because it requires a specially crafted PDF with a corrupted page stream, which is not feasible with standard test data. The unit-level guard in the service is sufficient. Similarly, the "JPEG output for a page with photographic content is significantly smaller than PNG" FRD acceptance criterion is covered at the unit level in Task 015 (JPEG quality affects size test).

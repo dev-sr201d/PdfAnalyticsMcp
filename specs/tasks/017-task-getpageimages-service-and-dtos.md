@@ -1,8 +1,8 @@
-# Task 015: GetPageImages Service and DTOs
+# Task 017: GetPageImages Service and DTOs
 
 ## Description
 
-Create the data transfer objects and extraction service for the `GetPageImages` tool (FRD-006). The service uses PDFiumCore's `fpdf_edit` API to enumerate embedded images on a single PDF page — including images nested inside Form XObjects — extracting each image's bounding box, pixel dimensions, and bits per pixel. When an output directory is provided, the service extracts each unique image to disk. For images encoded as pure JPEG (single `DCTDecode` filter), the raw JPEG bytes are extracted directly — avoiding lossy re-encoding and producing significantly smaller files. For all other encodings, the service renders to bitmap and encodes as PNG. The primary bitmap extraction method is `FPDFImageObj_GetRenderedBitmap()`, which produces clean per-image bitmaps with mask and transformation matrix applied. When `GetRenderedBitmap` returns null (which can happen for certain image objects that PDFium cannot render in context), the service falls back to `FPDFImageObj_GetBitmap()`, which returns the raw image data at native resolution without mask/matrix processing. The fallback bitmap may be in a different pixel format (BGR or grayscale instead of BGRA), so the service normalizes all formats to BGRA before PNG encoding. The service delegates all PDFiumCore document/page lifecycle and semaphore management to the shared `IPdfiumService` (Task 012b).
+Create the data transfer objects and extraction service for the `GetPageImages` tool (FRD-006). The service uses PDFiumCore's `fpdf_edit` API to enumerate embedded images on a single PDF page — including images nested inside Form XObjects — extracting each image's bounding box, pixel dimensions, and bits per pixel. When an output directory is provided, the service extracts each unique image to disk. For images encoded as pure JPEG (single `DCTDecode` filter), the raw JPEG bytes are extracted directly — avoiding lossy re-encoding and producing significantly smaller files. For all other encodings, the service renders to bitmap and encodes as PNG. The primary bitmap extraction method is `FPDFImageObj_GetRenderedBitmap()`, which produces clean per-image bitmaps with mask and transformation matrix applied. When `GetRenderedBitmap` returns null (which can happen for certain image objects that PDFium cannot render in context), the service falls back to `FPDFImageObj_GetBitmap()`, which returns the raw image data at native resolution without mask/matrix processing. The fallback bitmap may be in a different pixel format (BGR or grayscale instead of BGRA), so the service normalizes all formats to BGRA before PNG encoding. The service delegates all PDFiumCore document/page lifecycle and semaphore management to the shared `IPdfiumService` (Task 014).
 
 ## Traces To
 
@@ -16,7 +16,7 @@ Create the data transfer objects and extraction service for the `GetPageImages` 
 - **Task 004** — Shared serialization configuration: `SerializerConfig`, `FormatUtils` (complete)
 - **Task 005** — Input validation service: `IInputValidationService` (complete)
 - **Task 012** — BGRA PNG encoder: `PngEncoder` (complete — needed for encoding extracted image bitmaps with `preserveAlpha: true`)
-- **Task 012b** — Shared PDFiumCore service: `IPdfiumService` (complete — provides serialized document/page access)
+- **Task 014** — Shared PDFiumCore service: `IPdfiumService` (complete — provides serialized document/page access)
 
 ## Technical Requirements
 

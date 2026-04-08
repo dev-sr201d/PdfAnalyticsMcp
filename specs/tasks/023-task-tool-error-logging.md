@@ -1,4 +1,4 @@
-# Task 021: Tool-Level Error Logging to Stderr
+# Task 023: Tool-Level Error Logging to Stderr
 
 ## Description
 

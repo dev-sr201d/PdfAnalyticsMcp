@@ -1,4 +1,4 @@
-# Task 017: Classify File-Open Errors — I/O Access vs. Invalid PDF
+# Task 019: Classify File-Open Errors — I/O Access vs. Invalid PDF
 
 ## Description
 
@@ -20,9 +20,9 @@ Both error messages must be consistent across both engines (PdfPig and PDFiumCor
 
 ## Dependencies
 
-- Task 012b (Shared PDFium Service) — must be implemented first
-- Task 013 (RenderPagePreview Service and DTO) — must be implemented first
-- Task 014 (RenderPagePreview Tool and Integration Tests) — existing tests will need updating
+- Task 014 (Shared PDFium Service) — must be implemented first
+- Task 015 (RenderPagePreview Service and DTO) — must be implemented first
+- Task 016 (RenderPagePreview Tool and Integration Tests) — existing tests will need updating
 
 ## Technical Requirements
 
@@ -63,4 +63,4 @@ Both error messages must be consistent across both engines (PdfPig and PDFiumCor
   - Assert the error message matches `"The file could not be accessed: {pdfPath}. It may be in use by another process."`.
 - Update any existing unit tests that assert the invalid-PDF error message if the exception handling structure changes (e.g., adding `when` guards).
 - Verify existing non-PDF file tests still produce `"The file could not be opened as a PDF."`.
-- No new integration test classes are required — cross-tool consistency is verified in Task 020.
+- No new integration test classes are required — cross-tool consistency is verified in Task 022.

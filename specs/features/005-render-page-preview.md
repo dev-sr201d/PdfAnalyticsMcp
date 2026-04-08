@@ -140,6 +140,6 @@ This is the first feature to use PDFiumCore. Its implementation introduces a sha
 > The following notes provide guidance for implementers. They are informational and not normative requirements. Each point is elaborated in the referenced task spec.
 
 - **PNG encoding** should not introduce a heavy external imaging library dependency. A lightweight approach using only built-in .NET APIs is sufficient. See ADR-0004 and Task 012.
-- **JPEG encoding** should support a 1–100 quality range with direct control over compression level. See ADR-0004 and Task 012a.
-- The rendering service method should accept `format` and `quality` parameters alongside `pdfPath`, `page`, `dpi`, and `CancellationToken`. It should return the encoded image bytes and MIME type so the tool layer can construct the correct `ImageContentBlock`. See Task 013.
-- The rendering result model should include the MIME type and encoded image size to support the metadata DTO fields (`format`, `quality`, `sizeBytes`). See Tasks 013 and 014.
+- **JPEG encoding** should support a 1–100 quality range with direct control over compression level. See ADR-0004 and Task 013.
+- The rendering service method should accept `format` and `quality` parameters alongside `pdfPath`, `page`, `dpi`, and `CancellationToken`. It should return the encoded image bytes and MIME type so the tool layer can construct the correct `ImageContentBlock`. See Task 015.
+- The rendering result model should include the MIME type and encoded image size to support the metadata DTO fields (`format`, `quality`, `sizeBytes`). See Tasks 015 and 016.

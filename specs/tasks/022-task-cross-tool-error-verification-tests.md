@@ -1,4 +1,4 @@
-# Task 020: Cross-Tool Error Handling Verification Tests
+# Task 022: Cross-Tool Error Handling Verification Tests
 
 ## Description
 
@@ -13,10 +13,10 @@ This task creates a dedicated integration test class that verifies the FRD-007 a
 
 ## Dependencies
 
-- Task 017 (Classify File-Open Errors — I/O Access vs. Invalid PDF)
-- Task 018 (Move Fail-Fast Validations to Tool Boundary)
-- Task 019 (Per-Page Extraction and Rendering Failure Resilience)
-- All tool implementations (Tasks 007, 009, 011, 013, 016)
+- Task 019 (Classify File-Open Errors — I/O Access vs. Invalid PDF)
+- Task 020 (Move Fail-Fast Validations to Tool Boundary)
+- Task 021 (Per-Page Extraction and Rendering Failure Resilience)
+- All tool implementations (Tasks 007, 009, 011, 015, 018)
 
 ## Technical Requirements
 

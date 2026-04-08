@@ -1,8 +1,8 @@
-# Task 012a: JPEG Encoder Utility (SkiaSharp)
+# Task 013: JPEG Encoder Utility (SkiaSharp)
 
 ## Description
 
-Create an internal utility that encodes raw BGRA pixel data (as produced by PDFiumCore's rendering API) into a JPEG byte array using SkiaSharp. This utility complements the PNG encoder from Task 012, providing lossy compression that significantly reduces file size for pages with photographic or multi-colored content. It is a prerequisite for the page rendering service (Task 013) and is independently unit-testable.
+Create an internal utility that encodes raw BGRA pixel data (as produced by PDFiumCore's rendering API) into a JPEG byte array using SkiaSharp. This utility complements the PNG encoder from Task 012, providing lossy compression that significantly reduces file size for pages with photographic or multi-colored content. It is a prerequisite for the page rendering service (Task 015) and is independently unit-testable.
 
 ## Traces To
 

@@ -1,4 +1,4 @@
-# Task 019: Per-Page Extraction and Rendering Failure Resilience
+# Task 021: Per-Page Extraction and Rendering Failure Resilience
 
 ## Description
 
@@ -19,8 +19,8 @@ This task adds targeted exception handling around per-page operations in each se
 
 - Task 008 (GetPageText Service)
 - Task 010 (GetPageGraphics Service)
-- Task 013 (RenderPagePreview Service) — uses PDFiumCore
-- Task 015 (GetPageImages Service) — uses PDFiumCore; already has per-image handling; verify it covers page-level failures too
+- Task 015 (RenderPagePreview Service) — uses PDFiumCore
+- Task 017 (GetPageImages Service) — uses PDFiumCore; already has per-image handling; verify it covers page-level failures too
 
 ## Technical Requirements
 

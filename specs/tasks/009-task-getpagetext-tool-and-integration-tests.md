@@ -36,7 +36,7 @@ Define a tool class in `Tools/` that:
    - Validate the file path using `IInputValidationService.ValidateFilePath()`
    - Validate the minimum page number using `IInputValidationService.ValidatePageMinimum()`
    - Validate the granularity value using `IInputValidationService.ValidateGranularity()`
-   - These three validations are performed at the tool boundary for fail-fast behavior (matching the established pattern from Task 018 and the current implementation)
+   - These three validations are performed at the tool boundary for fail-fast behavior (matching the established pattern from Task 020 and the current implementation)
    - When `outputFile` is null: delegate to `IPageTextService.Extract(pdfPath, page, granularity)` and serialize the returned `PageTextDto` using `JsonSerializer.Serialize(result, SerializerConfig.Options)`
    - When `outputFile` is provided: delegate to `IPageTextService.ExtractToFile(pdfPath, page, granularity, outputFile)` and serialize the returned `PageTextSummaryDto` using `JsonSerializer.Serialize(result, SerializerConfig.Options)`
    - Return the serialized JSON string

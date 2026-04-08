@@ -1,8 +1,8 @@
-# Task 012b: Shared PDFiumCore Service
+# Task 014: Shared PDFiumCore Service
 
 ## Description
 
-Create a shared service that encapsulates all cross-cutting concerns for PDFiumCore interactions: library lifecycle management (`FPDF_InitLibrary` / `FPDF_DestroyLibrary`), thread serialization via a static semaphore, document and page loading with consistent error handling, and native resource cleanup. Both the page rendering service (Task 013 / FRD-005) and the image extraction service (Task 015 / FRD-006) consume this shared service rather than interacting with PDFiumCore directly.
+Create a shared service that encapsulates all cross-cutting concerns for PDFiumCore interactions: library lifecycle management (`FPDF_InitLibrary` / `FPDF_DestroyLibrary`), thread serialization via a static semaphore, document and page loading with consistent error handling, and native resource cleanup. Both the page rendering service (Task 015 / FRD-005) and the image extraction service (Task 017 / FRD-006) consume this shared service rather than interacting with PDFiumCore directly.
 
 PDFium's native library is **not thread-safe** — concurrent calls from multiple threads cause `AccessViolationException` and memory corruption. This service serializes all PDFiumCore operations through a single `SemaphoreSlim(1, 1)`, accepting `CancellationToken` so that callers queued behind the semaphore can be cancelled by the MCP client.
 
@@ -17,7 +17,7 @@ PDFium's native library is **not thread-safe** — concurrent calls from multipl
 - **Task 001** — Solution and project scaffolding (complete)
 - **Task 005** — Input validation service: `IInputValidationService` (complete)
 
-No dependency on Tasks 012, 012a, 013, or 015. This is a foundational service that those tasks consume.
+No dependency on Tasks 012, 013, 015, or 017. This is a foundational service that those tasks consume.
 
 ## Technical Requirements
 
